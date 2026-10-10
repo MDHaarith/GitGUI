@@ -23,7 +23,8 @@ export function layoutHistory(commits: Commit[], refs: RefInfo[] = []): Layout {
   const rows: LayoutRow[] = [];
   let lanes = 0;
   const seen = new Set<string>();
-  const available = (exclude = -1) => { const vacancy = active.findIndex((parent, index) => parent === null && index !== exclude); return vacancy < 0 ? active.length : vacancy; };
+  const reserved = new Set<number>();
+  const available = (exclude = -1) => { const vacancy = active.findIndex((parent, index) => parent === null && index !== exclude && !reserved.has(index)); return vacancy < 0 ? active.length : vacancy; };
   let nextColor = tips.size;
   const newColor = () => laneColors[nextColor++ % laneColors.length];
   const color = (lane: number) => colors[lane];
@@ -34,6 +35,7 @@ export function layoutHistory(commits: Commit[], refs: RefInfo[] = []): Layout {
     const expected = active.indexOf(commit.oid);
     const lane = expected < 0 ? available() : expected;
     if (expected < 0) colors[lane] = tips.get(commit.oid) ?? newColor();
+    if (tips.has(commit.oid)) reserved.add(lane);
     const nodeColor = color(lane);
     const through = active.flatMap((parent, index) => parent && index !== lane ? [{ lane: index, color: color(index), parent }] : []);
     active[lane] = null;
@@ -46,6 +48,7 @@ export function layoutHistory(commits: Commit[], refs: RefInfo[] = []): Layout {
         destination = index === 0 && !branchTip && active[lane] === null ? lane : available(branchTip ? lane : -1);
         active[destination] = parent;
         colors[destination] = tips.get(parent) ?? (index === 0 ? nodeColor : newColor());
+        if (branchTip) reserved.add(destination);
       }
       outgoing.push({ lane: destination, color: index === 0 ? nodeColor : color(destination), parent });
     }

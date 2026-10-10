@@ -6,6 +6,19 @@ import type { RefInfo } from './git.ts';
 const commit = (oid: string, parents: string[] = []) => ({ oid, shortOid: oid, parents, subject: oid, author: 'Test', timestamp: 0, shallow: false });
 const branch = (name: string, target: string, kind: RefInfo['kind'] = 'local'): RefInfo => ({ id: name, name, fullName: 'refs/' + (kind === 'local' ? 'heads/' : kind === 'remote' ? 'remotes/' : 'tags/') + name, kind, target, isHead: false });
 
+test('GUI, review, and master keep three separate branch columns at a shared ancestor', () => {
+  const data = [commit('gui', ['master']), commit('review', ['review-old']), commit('review-old', ['master']), commit('master', ['root']), commit('root')];
+  const refs = [branch('GUI-with-DESIGN.md', 'gui'), branch('chore/review-improvements', 'review'), branch('master', 'master')];
+  const result = layoutHistory(data, refs);
+  const tips = [result.rows[0], result.rows[1], result.rows[3]];
+  assert.equal(new Set(tips.map(row => row.lane)).size, 3);
+  assert.equal(new Set(tips.map(row => row.color)).size, 3);
+  assert.equal(result.rows[0].outgoing[0].lane, result.rows[3].lane);
+  assert.equal(result.rows[2].outgoing[0].lane, result.rows[3].lane);
+  for (let count = 1; count < data.length; count++) assert.deepEqual(layoutHistory(data.slice(0, count), refs).rows, result.rows.slice(0, count));
+  assert.deepEqual(result.pending, []);
+});
+
 test('a branch ahead of another branch gets a separate colored path with the real parent edge', () => {
   const data = [commit('feature', ['main']), commit('main', ['root']), commit('root')];
   const result = layoutHistory(data, [branch('feature', 'feature'), branch('main', 'main')]);
