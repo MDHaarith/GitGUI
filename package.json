@@ -1,12 +1,16 @@
 {
   "name": "gitgui",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
+    "prebuild": "node scripts/version.mjs --check",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "test": "node --test src/*.test.ts",
+    "preversion": "npm test",
+    "version": "node scripts/version.mjs",
+    "version:check": "node scripts/version.mjs --check",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -14,6 +14,7 @@ parser.add_argument("binary", type=Path)
 parser.add_argument("--port", type=int, default=4444)
 parser.add_argument("--output", type=Path, default=Path("test-results"))
 args = parser.parse_args()
+expected_version = json.loads((Path(__file__).resolve().parents[1] / 'package.json').read_text())['version']
 args.output.mkdir(parents=True, exist_ok=True)
 base = "http://127.0.0.1:" + str(args.port)
 session = None
@@ -98,6 +99,7 @@ with tempfile.TemporaryDirectory(prefix="gitgui-native-") as temporary:
         request("POST", "/session/" + session + "/window/rect", {"width": 1280, "height": 700})
         wait("document.getElementById('history-rows')?.children.length > 0")
         idle()
+        wait("document.getElementById('app-version').textContent === " + json.dumps('v' + expected_version))
         assert execute("return document.getElementById('history-rows').children.length") == expected
         assert execute("return document.querySelectorAll('#graph [data-node]').length") == expected
         assert execute("return document.getElementById('details').hidden") is True

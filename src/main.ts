@@ -1,4 +1,5 @@
 import { isTauri } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
 import { open, confirm, message as nativeMessage } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo } from './git.ts';
@@ -22,7 +23,7 @@ app.innerHTML = `
     <symbol id="chrome-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
   </defs></svg>
   <header class="toolbar">
-    <span class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v10a4 4 0 0 0 4 4h1m5-14v2a5 5 0 0 1-5 5H7"/><circle cx="7" cy="5" r="2.5"/><circle cx="17" cy="5" r="2.5"/><circle cx="15" cy="19" r="2.5"/></svg>GitGUI</span>
+    <span class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v10a4 4 0 0 0 4 4h1m5-14v2a5 5 0 0 1-5 5H7"/><circle cx="7" cy="5" r="2.5"/><circle cx="17" cy="5" r="2.5"/><circle cx="15" cy="19" r="2.5"/></svg>GitGUI<span class="app-version" id="app-version" hidden></span></span>
     <button class="secondary" id="open-repo">Open repository</button>
     <select id="recent-repos" aria-label="Repository"><option value="">Recent repositories</option></select>
     <div class="toolbar-actions"><button id="fetch" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-fetch"/></svg>Fetch</button><button id="pull" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-pull"/></svg>Pull</button><button id="push" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-push"/></svg>Push</button>
@@ -660,6 +661,7 @@ window.addEventListener('keydown', event => {
 window.addEventListener('focus', () => { if (repo && !busy && !document.querySelector('dialog[open]')) void run('Refreshing…', refresh); });
 updateControls();
 if (isTauri()) {
+  void getVersion().then(version => { get('app-version').textContent = 'v' + version; get('app-version').hidden = false; }).catch(report);
   void getCurrentWindow().onCloseRequested(async event => {
     if (writing) { event.preventDefault(); await nativeMessage('A Git operation is still running. Wait for it to finish before closing GitGUI.', { title: 'Git operation in progress', kind: 'info' }); }
   }).catch(report);

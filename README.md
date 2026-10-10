@@ -21,16 +21,16 @@ create/switch local branches, and fetch/pull/push.
 ```
 
 The Fedora x86-64 installer is generated at
-`src-tauri/target/release/bundle/rpm/GitGUI-0.1.0-1.x86_64.rpm`.
+`src-tauri/target/release/bundle/rpm/GitGUI-0.2.0-1.x86_64.rpm`.
 Install it with your package manager, then launch **GitGUI** from the application menu.
 
 The x86-64 AppImage is generated at
-`src-tauri/target/release/bundle/appimage/GitGUI_0.1.0_amd64.AppImage`.
+`src-tauri/target/release/bundle/appimage/GitGUI_0.2.0_amd64.AppImage`.
 Run it without installing:
 
 ```sh
-chmod +x src-tauri/target/release/bundle/appimage/GitGUI_0.1.0_amd64.AppImage
-./src-tauri/target/release/bundle/appimage/GitGUI_0.1.0_amd64.AppImage
+chmod +x src-tauri/target/release/bundle/appimage/GitGUI_0.2.0_amd64.AppImage
+./src-tauri/target/release/bundle/appimage/GitGUI_0.2.0_amd64.AppImage
 ```
 
 The AppImage requires system Git 2.43+ and FUSE support. If FUSE is unavailable,
@@ -38,11 +38,13 @@ run it with `APPIMAGE_EXTRACT_AND_RUN=1`. This build uses Fedora 44 (glibc 2.43)
 compatibility with older distributions is unverified. Build on the oldest target
 distribution before distributing a broadly compatible Linux release.
 
-On this desktop, AppImageLauncher also placed a copy in `~/Applications` and added
-GitGUI to the application menu. Its integration breaks native WebDriver's
-automation environment, so the packaged workflow check launches `AppRun` from
-the mounted AppImage directly. Graph, staging, commits, failed-hook recovery,
-branch actions, publishing, and fetch all passed.
+The desktop installation uses `~/Applications/GitGUI/0.2.0`, with a stable
+`~/Applications/GitGUI/current` symlink and one `gitgui.desktop` launcher. The
+launcher runs the extracted `AppRun` directly, which prevents AppImageLauncher
+from creating duplicate installations. The versioned AppImage and its SHA-256
+checksum are kept beside the extracted application. The toolbar displays the
+native application version. Repository data and saved drafts use the existing
+`com.gitgui.app` application profile.
 
 The app remembers the last selected repository, offers the eight most recently
 opened repositories, and keeps commit drafts locally for each repository.
@@ -92,6 +94,7 @@ pin the installed dependency graph. Fonts and their OFL licenses are in
 ## Checks
 
 ```sh
+npm run version:check
 npm test
 npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
@@ -124,6 +127,35 @@ Run the driver on an isolated test desktop/data profile if testing alongside nor
 app use. The script creates and deletes only its own temporary repository. Its
 rendered app DOM is saved to `test-results/desktop.html`. WebKit's screenshot
 endpoint can stall on some Linux graphics setups, so it is not part of the workflow assertions.
+
+## Release versions
+
+`package.json` is the version source. Tauri reads it directly; the npm version
+hook synchronizes the Rust manifest and lockfile. Builds reject mismatched
+versions. Use Semantic Versioning: patch for fixes, minor for new features, and
+major for breaking changes. Record release changes in `CHANGELOG.md`.
+
+```sh
+npm version patch --no-git-tag-version
+npm run version:check
+npm run tauri -- build --bundles appimage
+```
+
+Review and commit the version/changelog changes, then create an annotated tag
+named `v<version>` on the verified release commit. Merge the release into the
+existing `master` branch. Keep versioned release filenames and checksums; point
+the desktop's `current` symlink at the new extracted release after verifying
+startup. Retire obsolete launchers and binaries without deleting application
+profiles or repository files.
+
+When building inside an AppImage-based IDE, clear its inherited launcher
+variables for the build command:
+
+```sh
+env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE \
+  -u REDIRECT_APPIMAGE -u TARGET_APPIMAGE -u APPIMAGE_SILENT_INSTALL \
+  -u LD_LIBRARY_PATH npm run tauri -- build --bundles appimage
+```
 
 ## Boundaries
 
