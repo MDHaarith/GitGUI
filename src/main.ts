@@ -27,9 +27,9 @@ app.innerHTML = `
     <span class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v10a4 4 0 0 0 4 4h1m5-14v2a5 5 0 0 1-5 5H7"/><circle cx="7" cy="5" r="2.5"/><circle cx="17" cy="5" r="2.5"/><circle cx="15" cy="19" r="2.5"/></svg>GitGUI<span class="app-version" id="app-version" hidden></span></span>
     <button class="secondary" id="open-repo">Open repository</button><button class="secondary" id="init-repo">Init repository</button>
     <select id="recent-repos" aria-label="Repository"><option value="">Recent repositories</option></select>
-    <div class="toolbar-actions"><button id="publish" data-repo hidden title="Create a private GitHub repository and upload this code as a backup (needs the GitHub CLI, gh)">Publish to GitHub</button><button id="fetch" data-repo data-tip="Fetch: download news from the server without changing your files"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-fetch"/></svg>Fetch</button><button id="pull" data-repo data-tip="Pull: download the server's new commits into your branch"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-pull"/></svg>Pull</button><button id="push" data-repo data-tip="Push: upload your commits to the server (your backup)"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-push"/></svg>Push</button>
+    <span class="toolbar-status"><span id="status" role="status" aria-live="polite">Ready</span><span id="operation-feedback" hidden><progress id="operation-progress" aria-label="Git operation progress" max="100"></progress><span id="operation-elapsed"></span></span></span>
+    <div class="toolbar-actions"><button id="publish" data-repo hidden title="Back up this project online: a new private GitHub repository or one you already made">Publish</button><button id="fetch" data-repo data-tip="Fetch: download news from the server without changing your files"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-fetch"/></svg>Fetch</button><button id="pull" data-repo data-tip="Pull: download the server's new commits into your branch"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-pull"/></svg>Pull<span class="count" id="behind-count" hidden></span></button><button id="push" data-repo data-tip="Push: upload your commits to the server (your backup)"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-push"/></svg>Push<span class="count" id="ahead-count" hidden></span></button>
     <button id="refresh" data-repo><svg class="chrome-icon" id="refresh-icon" aria-hidden="true"><use href="#chrome-refresh"/></svg>Refresh</button></div>
-    <span class="repo-name" id="repo-name"><span id="repo-label">No repository selected</span><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-chevron"/></svg><span class="context-branch" id="repo-branch" hidden></span></span>
   </header>
   <nav class="scopebar" aria-label="History and repository actions">
     <label class="muted" for="scope">Scope</label><select id="scope" data-repo><option value="">All branches</option></select>
@@ -41,15 +41,21 @@ app.innerHTML = `
     <span class="spacer"></span>
     <button id="details-button" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-panel"/></svg>Details</button>
     <button id="checkpoints-button" data-repo title="Save or restore snapshots of your files">Checkpoints</button>
-    <button id="session-button" data-repo title="See what changed since your last checkpoint or commit, riskiest first, and undo single files">Review AI changes</button>
-    <button id="experiment-button" data-repo title="Work on a throwaway copy (a branch) that you can keep or discard">Try something risky</button><button id="experiment-keep" data-repo hidden title="Merge this experiment into the branch it started from">Keep it</button><button id="experiment-discard" data-repo hidden title="Delete this experiment and return to where you were">Throw it away</button>
-    <button id="run-button" data-repo title="Start your app and watch its output">Run</button>
-    <button id="rules-button" data-repo title="Rules every AI agent reads before changing this project (AGENTS.md)">AI rules</button>
-    <button id="help-button" title="How GitGUI works and what the Git words mean">Help</button>
+    <span class="experiment-bar" id="experiment-bar" hidden>Experiment<button id="experiment-keep" data-repo title="Merge this experiment into the branch it started from">Keep it</button><button id="experiment-discard" data-repo title="Delete this experiment and return to where you were">Throw it away</button></span>
+    <div class="menu"><button id="tools-button" aria-haspopup="menu" aria-expanded="false" aria-controls="tools-menu">Tools<svg class="chrome-icon" aria-hidden="true"><use href="#chrome-chevron"/></svg></button>
+      <div class="menu-list" id="tools-menu" role="menu" hidden>
+        <button role="menuitem" id="session-button" data-repo title="See what changed since your last checkpoint or commit, riskiest first, and undo single files">Review AI changes</button>
+        <button role="menuitem" id="experiment-button" data-repo title="Work on a throwaway copy (a branch) that you can keep or discard">Try something risky</button>
+        <button role="menuitem" id="run-button" data-repo title="Start your app and watch its output">Run project</button>
+        <button role="menuitem" id="rules-button" data-repo title="Rules every AI agent reads before changing this project (AGENTS.md)">AI rules</button>
+        <button role="menuitem" id="ai-settings-menu" title="Choose Claude, DeepSeek, OpenAI, Ollama, Codex, opencode, or any other AI">AI settings</button>
+        <button role="menuitem" id="help-button" title="How GitGUI works and what the Git words mean">Help</button>
+      </div>
+    </div>
     <button class="chip" id="changes-button" data-repo>Changes <span class="mono" id="changes-count">0</span></button>
   </nav>
   <div class="errorbar" id="error" role="alert" hidden><p id="error-text"></p><button id="dismiss-error" aria-label="Dismiss error">Close</button></div>
-  <div class="hintbar" id="git-hint" role="status" hidden></div>
+  <ul class="hintbar" id="git-hint" aria-label="Tips about this repository" hidden></ul>
   <main class="workspace" id="workspace">
     <aside class="branch-sidebar" id="branch-sidebar" aria-label="Branches and tags" hidden>
       <header class="panelbar"><h2>Repository</h2><span class="spacer"></span><button id="branch-actions" aria-label="Manage branches" data-repo>Manage</button></header>
@@ -94,7 +100,6 @@ app.innerHTML = `
     </section>
     </div>
   </main>
-  <footer class="footer"><span class="footer-segment"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-branch"/></svg><span id="branch-status">No repository</span></span><span class="footer-segment" id="sync-status" hidden><span id="ahead-count">+0</span><span id="behind-count">−0</span></span><span class="footer-segment" id="loaded-count" hidden></span><span class="footer-segment" id="status" role="status" aria-live="polite">Ready</span><span class="footer-segment" id="operation-feedback" hidden><progress id="operation-progress" aria-label="Git operation progress" max="100"></progress><span id="operation-elapsed"></span></span></footer>
   <dialog class="branch-dialog" id="branches" aria-labelledby="branches-title">
     <div class="dialog-head"><h2 id="branches-title">Branches</h2><form method="dialog"><button type="submit">Close</button></form></div>
     <div class="form-grid"><label for="branch-select">Switch to a local branch</label><select id="branch-select"></select><div class="row"><button class="chip" id="switch-branch">Switch branch</button></div>
@@ -116,6 +121,17 @@ app.innerHTML = `
     <p id="session-note" class="muted"></p><ul class="health-list" id="health-list"></ul>
     <div class="row"><button class="chip" id="session-explain">Explain with AI</button><button id="session-undo-all">Undo all</button></div>
     <ol class="checkpoint-list" id="session-list"></ol><pre class="diff dialog-pre" id="session-diff"></pre>
+  </dialog>
+  <dialog class="branch-dialog" id="publish-dialog" aria-labelledby="publish-title">
+    <div class="dialog-head"><h2 id="publish-title">Back up your code online</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
+    <form id="publish-form" class="form-grid">
+      <label for="publish-main">Main branch (GitHub shows this one first)</label><select id="publish-main"></select>
+      <label class="choice"><input type="radio" name="publish-mode" value="github" checked> Create a new private GitHub repository (needs the GitHub CLI, signed in once with <code>gh auth login</code>)</label>
+      <label class="choice"><input type="radio" name="publish-mode" value="url"> Use an empty repository I already made</label>
+      <input id="publish-url" aria-label="Repository address" autocomplete="off" placeholder="https://github.com/you/project.git" disabled>
+      <p class="muted">GitGUI uploads the main branch first, then the branch you are on.</p>
+      <div class="row"><button class="primary" type="submit">Publish</button></div>
+    </form>
   </dialog>
   <dialog class="branch-dialog" id="experiment-dialog" aria-labelledby="experiment-title">
     <div class="dialog-head"><h2 id="experiment-title">Try something risky</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
@@ -251,6 +267,7 @@ function updateControls() {
   disable('create-branch', blocked || (!repo?.head ? 'Create the first commit before creating another branch.' : !input('branch-name').value.trim() ? 'Enter a branch name.' : ''));
   disable('ai-message', blocked || (!stagedFiles().length ? 'Stage the files to describe first.' : ''));
   disable('ai-explain', unavailable || (!stagedFiles().length ? 'Stage the files to explain first.' : ''));
+  disable('publish', blocked || (!repo?.head ? 'Create the first commit before publishing.' : ''));
   disable('undo-commit', blocked || (!repo?.head ? 'There is no commit yet.' : ''));
   for (const id of ['operation-continue', 'operation-abort']) button(id).disabled = busy;
   disable('remote-submit', unavailable || (!select('remote-select').value ? 'Choose a configured remote.' : ''));
@@ -261,7 +278,6 @@ function updateControls() {
   updateDetailControls();
   renderRecentRepositories();
   scopeDropdown.sync(); repoDropdown.sync();
-  get('loaded-count').hidden = !repo; get('loaded-count').textContent = (page?.commits.length ?? 0) + ' commits loaded';
   get('app').setAttribute('aria-busy', String(busy));
 }
 async function run(label: string, action: () => Promise<void>, mutating = false) {
@@ -317,22 +333,20 @@ function renderInfo() {
   get('welcome').hidden = !!repo;
   get('branch-sidebar').hidden = !repo;
   get('workspace').classList.toggle('repository-open', !!repo);
-  get('repo-label').textContent = repo ? repo.root.split('/').filter(Boolean).pop()! : 'No repository selected';
-  get('repo-branch').textContent = repo?.branch ?? 'detached HEAD'; get('repo-branch').hidden = !repo;
-  get('repo-name').title = repo?.root ?? '';
-  get('branch-status').textContent = repo ? (repo.branch ?? 'detached ' + short(repo.head ?? '')) : 'No repository';
-  get('sync-status').hidden = !repo; get('ahead-count').textContent = '+' + (repo?.ahead ?? 0); get('behind-count').textContent = '−' + (repo?.behind ?? 0);
-  get('branch-status').title = repo?.upstream ? 'Upstream: ' + repo.upstream : 'No upstream';
+  get('behind-count').textContent = String(repo?.behind ?? 0); get('behind-count').hidden = !repo?.behind;
+  get('ahead-count').textContent = String(repo?.ahead ?? 0); get('ahead-count').hidden = !repo?.ahead;
+  const offline = !!repo && !repo.remotes.length;
+  for (const id of ['fetch', 'pull', 'push']) get(id).hidden = offline;
+  get('publish').hidden = !offline;
   get('changes-count').textContent = String(repo?.files.length ?? 0);
   get('staged-count').textContent = stagedFiles().length + ' staged ' + (stagedFiles().length === 1 ? 'file' : 'files');
   get('version-controls').hidden = !repo?.versioning; get('enable-versioning').hidden = !repo || repo.versioning;
   get('repo-version').textContent = repo?.version ? 'v' + repo.version : 'none';
-  const notes = repo ? [...explainState(repo), ...health] : []; get('git-hint').textContent = notes.join(' '); get('git-hint').hidden = !notes.length;
+  renderHints(repo ? explainState(repo) : [], repo ? health : []);
   get('operation-note').textContent = repo?.operation === 'unresolved conflicts' ? 'Resolve each conflicted file below.' : repo?.operation ? 'A ' + repo.operation + ' is in progress.' : '';
   get('operation-continue').hidden = !repo?.operation || repo.operation === 'unresolved conflicts'; get('operation-abort').hidden = !repo?.operation;
-  get('publish').hidden = !repo?.head || !!repo.remotes.length;
   const trying = !!repo?.branch?.startsWith('try/');
-  get('experiment-button').hidden = trying; get('experiment-keep').hidden = !trying; get('experiment-discard').hidden = !trying;
+  get('experiment-button').hidden = trying; get('experiment-bar').hidden = !trying;
 }
 function scopeOptions() {
   const control = select('scope'); control.replaceChildren(option('', 'All branches'));
@@ -648,11 +662,33 @@ function loadHealth() {
   const id = repo?.id; if (id === undefined) return;
   api.health(id).then(notes => { if (repo?.id === id) { health = notes; renderInfo(); } }).catch(() => { /* Warnings are advisory; never block the user. */ });
 }
+function openPublish() {
+  if (!repo || busy) return;
+  const branches = page?.refs.filter(ref => ref.kind === 'local').map(ref => ref.name) ?? [];
+  select('publish-main').replaceChildren(...branches.map(name => option(name, name)));
+  select('publish-main').value = ['main', 'master'].find(name => branches.includes(name)) ?? repo.branch ?? branches[0] ?? '';
+  dialog('publish-dialog').showModal();
+}
 async function publish() {
   if (!repo || busy) return;
-  const name = repo.root.split('/').filter(Boolean).pop();
-  if (!await confirm(`Create a private GitHub repository named "${name}" and upload this code? This needs the GitHub CLI (gh), signed in once with "gh auth login".`, { title: 'Publish to GitHub', kind: 'info' })) return;
-  await mutate('Publishing to GitHub…', () => api.publish(repo!.id, repo!.token));
+  const useUrl = get<HTMLFormElement>('publish-form').querySelector<HTMLInputElement>('input[name="publish-mode"]:checked')?.value === 'url';
+  const main = select('publish-main').value; const url = useUrl ? input('publish-url').value.trim() : null;
+  if (useUrl && !url) { input('publish-url').focus(); return; }
+  dialog('publish-dialog').close();
+  await mutate('Publishing…', () => api.publish(repo!.id, main, url, repo!.token));
+}
+const dismissedHints = new Set<string>();
+function renderHints(state: string[], warnings: string[]) {
+  const items = [...state.map(text => ({ text, kind: 'state' })), ...warnings.map(text => ({ text, kind: 'warning' }))]
+    .filter(note => !dismissedHints.has(note.text))
+    .map(note => {
+      const item = document.createElement('li'); item.className = 'hint hint-' + note.kind;
+      const text = document.createElement('span'); text.textContent = note.text;
+      const close = document.createElement('button'); close.type = 'button'; close.textContent = '×'; close.setAttribute('aria-label', 'Dismiss this tip');
+      close.onclick = () => { dismissedHints.add(note.text); renderInfo(); };
+      item.append(text, close); return item;
+    });
+  get('git-hint').replaceChildren(...items); get('git-hint').hidden = !items.length;
 }
 async function finishExperiment(keep: boolean) {
   if (!repo || busy) return;
@@ -995,7 +1031,23 @@ button('switch-branch').onclick = () => { if (!repo) return; const id = select('
 button('create-branch').onclick = () => { if (!repo) return; const name = input('branch-name').value.trim(); const oid = select('branch-start').value === 'selected' ? selected : null; dialog('branches').close(); void mutate('Creating branch…', () => api.createBranch(repo!.id, name, oid, repo!.token)); };
 select('remote-select').onchange = remoteUrl;
 get<HTMLFormElement>('remote-form').onsubmit = event => { event.preventDefault(); if (!repo || busy) return; const remoteId = select('remote-select').value; dialog('remote-dialog').close(); if (remoteAction === 'fetch') void mutate('Fetching remote…', () => api.fetch(repo!.id, remoteId, progressReporter())); else void mutate('Publishing current branch…', () => api.push(repo!.id, remoteId, repo!.token, progressReporter())); };
-button('publish').onclick = () => { void publish(); };
+button('publish').onclick = openPublish;
+get<HTMLFormElement>('publish-form').onsubmit = event => { event.preventDefault(); void publish(); };
+get<HTMLFormElement>('publish-form').onchange = () => { const useUrl = get<HTMLFormElement>('publish-form').querySelector<HTMLInputElement>('input[name="publish-mode"]:checked')?.value === 'url'; input('publish-url').disabled = !useUrl; if (useUrl) input('publish-url').focus(); };
+function closeTools() { get('tools-menu').hidden = true; button('tools-button').setAttribute('aria-expanded', 'false'); }
+button('tools-button').onclick = event => {
+  event.stopPropagation(); const menu = get('tools-menu'); menu.hidden = !menu.hidden;
+  button('tools-button').setAttribute('aria-expanded', String(!menu.hidden));
+  if (!menu.hidden) menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+};
+get('tools-menu').addEventListener('click', closeTools);
+get('tools-menu').addEventListener('keydown', event => {
+  const items = [...get('tools-menu').querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]; const index = items.indexOf(document.activeElement as HTMLButtonElement);
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus(); }
+  if (event.key === 'Escape') { event.stopPropagation(); closeTools(); button('tools-button').focus(); }
+});
+document.addEventListener('click', event => { if (!get('tools-menu').hidden && !get('tools-menu').contains(event.target as Node)) closeTools(); });
+button('ai-settings-menu').onclick = () => { void showKeyForm(); };
 button('session-button').onclick = () => { void openSession(); };
 button('session-explain').onclick = () => { void explainChanges('session', 'What the AI changed'); };
 button('session-undo-all').onclick = () => { void undoSession(sessionFiles.map(file => file.path)); };

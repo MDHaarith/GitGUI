@@ -864,3 +864,31 @@ fn branches_are_renamed_and_deleted_safely() {
     b.delete_branch(info.id, &side, true, &info.token).unwrap();
     assert_eq!(cmd(&f.root, &["branch", "--list", "side"]), "");
 }
+
+#[test]
+fn publish_to_an_existing_url_pushes_the_main_branch_first() {
+    let f = Fixture::new();
+    f.commit("a.txt", "one\n", "base");
+    cmd(&f.root, &["switch", "-q", "-c", "feature"]);
+    f.commit("a.txt", "two\n", "feature work");
+    let bare = f.temp.path().join("remote.git");
+    cmd(&f.root, &["init", "-q", "--bare", bare.to_str().unwrap()]);
+    let (mut b, info) = f.open();
+    assert!(b
+        .publish(info.id, "nope", Some(bare.to_str().unwrap()), &info.token)
+        .unwrap_err()
+        .contains("no local branch"));
+    assert!(b.publish(info.id, "main", Some("-x"), &info.token).is_err());
+    let info = b
+        .publish(info.id, "main", Some(bare.to_str().unwrap()), &info.token)
+        .unwrap();
+    assert_eq!(info.upstream.as_deref(), Some("origin/feature"));
+    assert_eq!(
+        cmd(&bare, &["for-each-ref", "--format=%(refname:short)"]),
+        "feature\nmain"
+    );
+    assert!(b
+        .publish(info.id, "main", Some(bare.to_str().unwrap()), &info.token)
+        .unwrap_err()
+        .contains("already has a remote"));
+}

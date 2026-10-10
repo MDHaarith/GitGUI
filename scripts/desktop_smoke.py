@@ -115,13 +115,12 @@ with tempfile.TemporaryDirectory(prefix="gitgui-native-") as temporary:
         execute("for(const key of ['Home','ArrowDown','ArrowDown','Enter']) document.getElementById('scope-button').dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}))")
         idle()
         assert execute("return document.getElementById('scope').value") == graph_branch
-        assert execute("return document.getElementById('loaded-count').textContent") == '5 commits loaded'
         assert execute("return document.activeElement.id") == 'scope-button'
         click('#scope-button')
         execute("for(const key of ['Home','Enter']) document.getElementById('scope-button').dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}))")
         idle()
         assert execute("return document.getElementById('history-rows').children.length") == expected
-        print("PASS styled scope dropdown, keyboard selection, focus, and footer counts", flush=True)
+        print("PASS styled scope dropdown, keyboard selection, and focus", flush=True)
         click('#ref-list .ref-item[data-scope="' + graph_branch + '"]'); idle()
         assert execute("return document.getElementById('history-rows').children.length") == 5
         assert execute("return document.getElementById('scope').value") == graph_branch

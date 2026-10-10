@@ -105,7 +105,7 @@ so they cannot edit the project. Settings live in
 
 **Try something risky** starts a `try/<name>` branch; **Keep it** merges it back
 with a merge commit, **Throw it away** deletes it after saving a checkpoint.
-**Publish to GitHub** runs `gh repo create --private --push`. Conflicted files get
+**Publish** (shown instead of Fetch, Pull, and Push until a remote exists) creates a private GitHub repository with `gh` or adds an existing empty repository URL, then pushes the main branch you choose first, so it becomes GitHub's default, followed by the current branch. Conflicted files get
 Keep ours, Keep theirs, Mark fixed (refused while markers remain), and Explain;
 Continue and Abort finish the merge, rebase, cherry-pick, or revert. **Undo last
 commit** moves an unpushed commit's changes back to Staged and deletes its version

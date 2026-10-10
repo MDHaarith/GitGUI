@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0 — 2026-10-11
+
+- Fix Publish making the current branch GitHub's default: you choose the main branch, which is pushed first, then the current branch.
+- Publish can also use an existing empty repository URL instead of the GitHub CLI.
+- Show Publish instead of Fetch, Pull, and Push when the repository has no remote; Pull and Push show waiting commit counts.
+- Remove the footer and the repository name bar; status and progress move to the toolbar.
+- Move Review AI changes, experiments, Run, AI rules, AI settings, and Help into a Tools menu so the bar no longer overflows.
+- Tips appear as dismissible cards; lockfiles and build output no longer count as large files.
+
 ## 0.8.0 — 2026-10-11
 
 - AI settings: choose Claude, DeepSeek, OpenAI, OpenRouter, Groq, Ollama, any OpenAI-compatible API, or a command-line agent (Codex, Claude Code, opencode, or any command).

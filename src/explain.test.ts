@@ -13,7 +13,7 @@ test('state notes cover conflicts, detached HEAD, and sync direction', () => {
   assert.match(explainState({ ...clean, behind: 1 })[0], /1 commit you/);
   assert.match(explainState({ ...clean, ahead: 3 })[0], /3 commits are only on this computer/);
   assert.match(explainState({ ...clean, upstream: null })[0], /only on this computer/);
-  assert.match(explainState({ ...clean, upstream: null, remotes: [] })[0], /Publish to GitHub/);
+  assert.match(explainState({ ...clean, upstream: null, remotes: [] })[0], /Publish/);
 });
 
 test('known Git errors get a plain-English explanation', () => {

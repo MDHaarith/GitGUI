@@ -9,7 +9,7 @@ export function explainState(repo: Pick<RepoInfo, 'detached' | 'operation' | 'up
   if (repo.ahead && repo.behind) notes.push(`Your copy and the server both have new commits (${repo.ahead} here, ${repo.behind} there). Pull first to combine them, then push.`);
   else if (repo.behind) notes.push(`The server has ${repo.behind} commit${repo.behind === 1 ? '' : 's'} you don't have yet. Pull to get them.`);
   else if (repo.ahead) notes.push(`${repo.ahead} commit${repo.ahead === 1 ? ' is' : 's are'} only on this computer. Push to back ${repo.ahead === 1 ? 'it' : 'them'} up.`);
-  else if (repo.head && !repo.remotes.length) notes.push('Your code exists only on this computer. If the disk fails, it is gone: use Publish to GitHub to back it up.');
+  else if (repo.head && !repo.remotes.length) notes.push('Your code exists only on this computer. If the disk fails, it is gone: press Publish to back it up online.');
   else if (repo.branch && repo.head && !repo.upstream) notes.push('This branch exists only on this computer. Push it to back it up and share it.');
   return notes;
 }

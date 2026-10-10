@@ -21,6 +21,17 @@ const BIG_FILE_LINES: usize = 800;
 fn is_test(path: &str) -> bool {
     TEST_PATH.iter().any(|p| path.contains(p)) || path.starts_with("test")
 }
+/// Lockfiles and build output are large by nature; nobody should split them.
+fn is_generated(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.ends_with(".lock")
+        || name.ends_with("-lock.json")
+        || name.ends_with("-lock.yaml")
+        || name.ends_with(".min.js")
+        || name.ends_with(".map")
+        || path.starts_with("dist/")
+        || path.contains("/dist/")
+}
 fn slug(name: &str) -> String {
     let slug: String = name
         .to_lowercase()
@@ -182,7 +193,7 @@ impl Backend {
                 }
             } else if let Ok(meta) = fs::metadata(repo.root.join(&path)) {
                 // shortcut: only files changed in the last commit or since; a full-repo scan would be slow on big repos.
-                if meta.len() < 2 * 1024 * 1024 {
+                if meta.len() < 2 * 1024 * 1024 && !is_generated(&path) {
                     let lines = fs::read(repo.root.join(&path))
                         .map(|d| d.iter().filter(|b| **b == b'\n').count())
                         .unwrap_or(0);
@@ -414,7 +425,15 @@ impl Backend {
     }
 
     /// Creates a private GitHub repository with the GitHub CLI and pushes to it.
-    pub fn publish_github(&mut self, id: u64, token: &str) -> Result<RepoInfo> {
+    /// Puts the project online: a new private GitHub repository (through the GitHub CLI) or an existing
+    /// empty repository URL. The main branch is pushed first so GitHub makes it the default branch.
+    pub fn publish(
+        &mut self,
+        id: u64,
+        main: &str,
+        url: Option<&str>,
+        token: &str,
+    ) -> Result<RepoInfo> {
         let repo = self.repo(id)?;
         let info = repo.checked(token)?;
         if !info.remotes.is_empty() {
@@ -423,36 +442,72 @@ impl Backend {
         if info.head.is_none() {
             return Err("Create the first commit before publishing.".into());
         }
-        let name = repo
-            .root
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .ok_or("Invalid folder name")?;
-        let output = Command::new("gh")
-            .current_dir(&repo.root)
-            .args([
-                "repo",
-                "create",
-                &name,
-                "--private",
-                "--source",
-                ".",
-                "--remote",
-                "origin",
-                "--push",
-            ])
-            .env("GH_PROMPT_DISABLED", "1")
-            .env_remove("LD_LIBRARY_PATH")
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|_| {
-                "Install the GitHub CLI (gh) and run `gh auth login` once, then try again."
-                    .to_owned()
-            })?;
-        if !output.status.success() {
-            return Err(redact(&text(&output.stderr)).trim().to_owned());
+        repo.valid_branch_name(main)?;
+        if optional(
+            &repo.root,
+            &["rev-parse", "--verify", "-q", &format!("refs/heads/{main}")],
+        )?
+        .is_none()
+        {
+            return Err(format!("There is no local branch named {main}."));
         }
-        repo.graph = None;
+        let mut credentials = Vec::new();
+        match url.map(str::trim) {
+            Some(url) => {
+                if url.is_empty()
+                    || url.starts_with('-')
+                    || url.chars().any(|c| c.is_whitespace() || c.is_control())
+                {
+                    return Err("Enter the repository address, for example https://github.com/you/project.git".into());
+                }
+                repo.write(&argv(&["remote", "add", "origin", url]), None, None, None)?;
+            }
+            None => {
+                let name = repo
+                    .root
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .ok_or("Invalid folder name")?;
+                let output = Command::new("gh")
+                    .current_dir(&repo.root)
+                    .args([
+                        "repo",
+                        "create",
+                        &name,
+                        "--private",
+                        "--source",
+                        ".",
+                        "--remote",
+                        "origin",
+                    ])
+                    .env("GH_PROMPT_DISABLED", "1")
+                    .env_remove("LD_LIBRARY_PATH")
+                    .stdin(Stdio::null())
+                    .output()
+                    .map_err(|_| {
+                        "Install the GitHub CLI (gh) and run `gh auth login` once, then try again."
+                            .to_owned()
+                    })?;
+                if !output.status.success() {
+                    return Err(redact(&text(&output.stderr)).trim().to_owned());
+                }
+                // Push with the GitHub CLI's login, as `gh repo create --push` would.
+                credentials = vec![
+                    "-c",
+                    "credential.helper=",
+                    "-c",
+                    "credential.helper=!gh auth git-credential",
+                ];
+            }
+        }
+        let mut branches = vec![main.to_owned()];
+        branches.extend(info.branch.filter(|b| b != main));
+        for branch in branches {
+            let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
+            let mut args = credentials.clone();
+            args.extend(["push", "-u", "origin", &refspec]);
+            repo.write(&argv(&args), None, Some(Duration::from_secs(300)), None)?;
+        }
         repo.info()
     }
 
@@ -561,6 +616,11 @@ mod tests {
         );
         assert_eq!(slug("  Try New Login!! "), "try-new-login");
         assert_eq!(slug("???"), "experiment");
+        assert!(
+            is_generated("package-lock.json")
+                && is_generated("src-tauri/Cargo.lock")
+                && !is_generated("src/main.ts")
+        );
         let deps = dependencies(Some(
             r#"{"dependencies":{"a":"1"},"devDependencies":{"b":"2"}}"#,
         ));

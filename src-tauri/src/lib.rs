@@ -343,12 +343,17 @@ async fn undo_commit(
     task(state, true, move |b| b.undo_commit(repo_id, &token)).await
 }
 #[tauri::command]
-async fn publish_github(
+async fn publish(
     repo_id: u64,
+    main: String,
+    url: Option<String>,
     token: String,
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
-    task(state, true, move |b| b.publish_github(repo_id, &token)).await
+    task(state, true, move |b| {
+        b.publish(repo_id, &main, url.as_deref(), &token)
+    })
+    .await
 }
 #[tauri::command]
 async fn get_agent_rules(repo_id: u64, state: State<'_, AppState>) -> git::Result<String> {
@@ -443,7 +448,7 @@ pub fn run() {
             resolve_conflict,
             finish_operation,
             undo_commit,
-            publish_github,
+            publish,
             get_agent_rules,
             save_agent_rules,
             ask_claude,
