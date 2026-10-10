@@ -578,3 +578,129 @@ fn versioning_hooks_require_bumps_and_tag_new_versions() {
         .unwrap()
         .contains("- Add main\n"));
 }
+
+#[test]
+fn checkpoints_snapshot_untracked_files_and_restore_without_touching_the_index() {
+    let f = Fixture::new();
+    f.commit("a.txt", "one\n", "base");
+    let (mut b, info) = f.open();
+    assert!(
+        b.checkpoint(info.id, "clean").unwrap().is_empty(),
+        "nothing to save on a clean tree"
+    );
+    f.write("a.txt", b"two\n");
+    f.write("new.txt", b"created\n");
+    let list = b.checkpoint(info.id, "Before AI").unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].label, "Before AI");
+    assert_eq!(list[0].summary, "2 files changed (+2 −1): a.txt, new.txt");
+    assert_eq!(
+        b.checkpoint(info.id, "again").unwrap().len(),
+        1,
+        "unchanged files are not saved twice"
+    );
+    assert_eq!(
+        cmd(&f.root, &["diff", "--cached", "--name-only"]),
+        "",
+        "the real index is untouched"
+    );
+    assert_eq!(
+        cmd(&f.root, &["for-each-ref", "refs/heads"])
+            .lines()
+            .count(),
+        1,
+        "no branches are created"
+    );
+
+    f.write("a.txt", b"broken by AI\n");
+    fs::remove_file(f.root.join("new.txt")).unwrap();
+    let current = b.status(info.id).unwrap();
+    b.restore_checkpoint(info.id, &list[0].oid, &current.token)
+        .unwrap();
+    assert_eq!(fs::read_to_string(f.root.join("a.txt")).unwrap(), "two\n");
+    assert_eq!(
+        fs::read_to_string(f.root.join("new.txt")).unwrap(),
+        "created\n"
+    );
+    let list = b.checkpoints(info.id).unwrap();
+    assert_eq!(list[0].label, "Before restoring a checkpoint");
+    assert!(b
+        .restore_checkpoint(info.id, &"0".repeat(40), &current.token)
+        .is_err());
+}
+
+#[test]
+fn safeguard_hooks_block_secrets_env_files_and_failing_tests() {
+    let f = Fixture::new();
+    let (mut b, info) = f.open();
+    let info = b.enable_versioning(info.id).unwrap();
+    assert!(fs::read_to_string(f.root.join(".gitignore"))
+        .unwrap()
+        .contains(".env\n"));
+    let stage_all = |b: &mut Backend, info: &RepoInfo| {
+        let ids: Vec<_> = info.files.iter().map(|f| f.id.clone()).collect();
+        b.stage(info.id, &ids, false, &info.token).unwrap()
+    };
+    let staged = stage_all(&mut b, &info);
+    let info = b
+        .commit(info.id, "Start", &staged.token, false, None)
+        .unwrap();
+
+    f.write("config.js", b"const key = 'AKIAABCDEFGHIJKLMNOP';\n");
+    let current = b.status(info.id).unwrap();
+    let staged = stage_all(&mut b, &current);
+    let error = b
+        .commit(info.id, "Add config", &staged.token, false, None)
+        .unwrap_err();
+    assert!(error.contains("looks like an API key"), "{error}");
+    cmd(&f.root, &["reset", "-q"]);
+    fs::remove_file(f.root.join("config.js")).unwrap();
+
+    f.write(".env", b"TOKEN=x\n");
+    cmd(&f.root, &["add", "-f", ".env"]);
+    let current = b.status(info.id).unwrap();
+    let error = b
+        .commit(info.id, "Add env", &current.token, false, None)
+        .unwrap_err();
+    assert!(error.contains(".env file is staged"), "{error}");
+    cmd(&f.root, &["rm", "-q", "--cached", ".env"]);
+
+    cmd(
+        &f.root,
+        &[
+            "config",
+            "gitgui.testCommand",
+            "echo 1 failing test; exit 1",
+        ],
+    );
+    f.write("main.rs", b"fn main() {}\n");
+    let current = b.status(info.id).unwrap();
+    let staged = stage_all(&mut b, &current);
+    let error = b
+        .commit(
+            info.id,
+            "Add main",
+            &staged.token,
+            false,
+            Some("patch".into()),
+        )
+        .unwrap_err();
+    assert!(
+        error.contains("tests failed") && error.contains("1 failing test"),
+        "{error}"
+    );
+}
+
+#[test]
+fn change_summaries_are_plain_english() {
+    use gitgui_lib::git::summarize;
+    assert_eq!(summarize(""), "");
+    assert_eq!(
+        summarize("3\t0\tsrc/app.ts\n"),
+        "1 file changed (+3 −0): app.ts"
+    );
+    assert_eq!(
+        summarize("1\t1\ta\n2\t0\tb\n-\t-\timg.png\n0\t5\td/e\n"),
+        "4 files changed (+3 −6): a, b, img.png and 1 more"
+    );
+}

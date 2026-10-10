@@ -2,10 +2,11 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { open, confirm, message as nativeMessage } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { api, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo } from './git.ts';
+import { api, type Checkpoint, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo } from './git.ts';
 import { findCommits, layoutHistory, paintGraph, type Layout } from './graph.ts';
 import { numberDiff } from './diff.ts';
 import { wireDropdown } from './dropdown.ts';
+import { explainError, explainState } from './explain.ts';
 import './styles.css';
 
 const app = document.getElementById('app')!;
@@ -39,9 +40,11 @@ app.innerHTML = `
     </div>
     <span class="spacer"></span>
     <button id="details-button" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-panel"/></svg>Details</button>
+    <button id="checkpoints-button" data-repo title="Save or restore snapshots of your files">Checkpoints</button>
     <button class="chip" id="changes-button" data-repo>Changes <span class="mono" id="changes-count">0</span></button>
   </nav>
   <div class="errorbar" id="error" role="alert" hidden><p id="error-text"></p><button id="dismiss-error" aria-label="Dismiss error">Close</button></div>
+  <div class="hintbar" id="git-hint" role="status" hidden></div>
   <main class="workspace" id="workspace">
     <aside class="branch-sidebar" id="branch-sidebar" aria-label="Branches and tags" hidden>
       <header class="panelbar"><h2>Repository</h2><span class="spacer"></span><button id="branch-actions" aria-label="Manage branches" data-repo>Manage</button></header>
@@ -78,7 +81,7 @@ app.innerHTML = `
         <form class="composer" id="commit-form">
           <label for="summary">Summary</label><input id="summary" required maxlength="1000" autocomplete="off" placeholder="Describe this commit">
           <label for="body">Description <span class="muted">(optional)</span></label><textarea id="body" maxlength="64000" rows="3"></textarea>
-          <div class="commit-row"><span id="version-controls"><label for="bump">Version <span class="mono" id="repo-version"></span></label> <select id="bump" data-repo><option value="minor">Minor · feature</option><option value="patch">Patch · fix</option><option value="major">Major · breaking</option><option value="">No bump</option></select></span><button id="enable-versioning" data-repo title="Install hooks that require a version bump and changelog entry for every code commit">Enable versioning</button></div>
+          <div class="commit-row"><span id="version-controls"><label for="bump">Version <span class="mono" id="repo-version"></span></label> <select id="bump" data-repo><option value="minor">Minor · feature</option><option value="patch">Patch · fix</option><option value="major">Major · breaking</option><option value="">No bump</option></select></span><button id="enable-versioning" data-repo title="Block secrets and failing tests, and give every code commit its own version">Enable safeguards</button></div>
           <div class="commit-row"><span id="staged-count">0 staged files</span><button class="primary" id="commit-button" type="submit" data-repo>Commit staged</button></div>
         </form>
       </div>
@@ -93,6 +96,12 @@ app.innerHTML = `
       <label for="branch-start">Start at</label><select id="branch-start"><option value="head">Current HEAD</option><option value="selected">Selected commit</option></select>
       <div class="row"><button class="chip" id="create-branch">Create branch</button></div><p id="branch-note"></p>
     </div>
+  </dialog>
+  <dialog class="branch-dialog" id="checkpoint-dialog" aria-labelledby="checkpoint-title">
+    <div class="dialog-head"><h2 id="checkpoint-title">Checkpoints</h2><form method="dialog"><button type="submit">Close</button></form></div>
+    <form id="checkpoint-form" class="form-grid"><label for="checkpoint-name">Save your current files</label><input id="checkpoint-name" maxlength="200" autocomplete="off" placeholder="Before asking the AI to …"><div class="row"><button class="chip" type="submit">Save checkpoint</button></div></form>
+    <p class="muted">GitGUI also saves one automatically when you come back to the window (at most every 10 minutes). Restoring puts files back exactly as they were; your current files are saved as a checkpoint first, and files created later are kept.</p>
+    <ol class="checkpoint-list" id="checkpoint-list"></ol>
   </dialog>
   <dialog class="branch-dialog" id="remote-dialog" aria-labelledby="remote-title">
     <div class="dialog-head"><h2 id="remote-title">Choose remote</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
@@ -154,7 +163,7 @@ function restoreDraft() {
   try { const value = JSON.parse(stored(draftKey()) ?? '{}'); input('summary').value = typeof value.summary === 'string' ? value.summary : ''; get<HTMLTextAreaElement>('body').value = typeof value.body === 'string' ? value.body : ''; } catch { /* Ignore a malformed saved draft. */ }
 }
 function notify(message: string) { get('status').textContent = message; }
-function report(error: unknown) { get('error-text').textContent = String(error).slice(0, 4000); get('error').hidden = false; notify('Operation failed. Review the message and refresh if needed.'); }
+function report(error: unknown) { const why = explainError(String(error)); get('error-text').textContent = (why ? why + '\n\n' : '') + String(error).slice(0, 4000); get('error').hidden = false; notify('Operation failed. Review the message and refresh if needed.'); }
 function normal() { return !!repo && !repo.operation; }
 function stagedFiles() { return repo?.files.filter(file => file.index !== '.' && !file.untracked && !file.conflicted) ?? []; }
 function disable(id: string, reason: string) {
@@ -249,6 +258,7 @@ function renderInfo() {
   get('staged-count').textContent = stagedFiles().length + ' staged ' + (stagedFiles().length === 1 ? 'file' : 'files');
   get('version-controls').hidden = !repo?.versioning; get('enable-versioning').hidden = !repo || repo.versioning;
   get('repo-version').textContent = repo?.version ? 'v' + repo.version : 'none';
+  const notes = repo ? explainState(repo) : []; get('git-hint').textContent = notes.join(' '); get('git-hint').hidden = !notes.length;
   get('operation-note').textContent = repo?.operation ? 'Finish ' + repo.operation + ' in the terminal, then refresh.' : '';
 }
 function scopeOptions() {
@@ -411,8 +421,45 @@ async function initRepository() {
 }
 async function enableVersioning() {
   if (!repo || busy) return;
-  if (!await confirm('GitGUI will install pre-commit and post-commit hooks, and add VERSION, CHANGELOG.md, and an AGENTS.md section where missing. Code commits will then require a version bump and changelog entry, and each new version is tagged.', { title: 'Enable versioning', kind: 'info' })) return;
-  await mutate('Enabling versioning…', () => api.enableVersioning(repo!.id));
+  if (!await confirm('GitGUI will install pre-commit and post-commit hooks and add VERSION, CHANGELOG.md, .env in .gitignore, and an AGENTS.md section where missing. Commits will then be blocked if they contain API keys or .env files, and code commits need passing tests, a version bump, and a changelog entry. Each new version is tagged.', { title: 'Enable safeguards', kind: 'info' })) return;
+  await mutate('Enabling safeguards…', () => api.enableVersioning(repo!.id));
+}
+let lastAutoCheckpoint = 0;
+async function autoCheckpoint() {
+  if (!repo?.files.length || Date.now() - lastAutoCheckpoint < 10 * 60_000) return;
+  lastAutoCheckpoint = Date.now();
+  await api.checkpoint(repo.id, 'Automatic checkpoint').catch(() => { /* Best effort: never interrupt the user. */ });
+}
+function renderCheckpoints(list: Checkpoint[]) {
+  const items = list.map(checkpoint => {
+    const item = document.createElement('li');
+    const title = document.createElement('strong'); title.textContent = checkpoint.label;
+    const meta = document.createElement('span'); meta.className = 'muted'; meta.textContent = new Date(checkpoint.timestamp * 1000).toLocaleString() + ' · ' + checkpoint.summary;
+    const restore = document.createElement('button'); restore.type = 'button'; restore.textContent = 'Restore'; restore.setAttribute('aria-label', 'Restore checkpoint ' + checkpoint.label);
+    restore.onclick = () => { void restoreCheckpoint(checkpoint); };
+    item.append(title, meta, restore); return item;
+  });
+  if (!items.length) { const empty = document.createElement('li'); empty.className = 'muted'; empty.textContent = 'No checkpoints yet. Save one before letting an AI change your code.'; items.push(empty); }
+  get('checkpoint-list').replaceChildren(...items);
+}
+async function openCheckpoints() {
+  if (!repo || busy) return;
+  await run('Loading checkpoints…', async () => { renderCheckpoints(await api.checkpoints(repo!.id)); dialog('checkpoint-dialog').showModal(); notify('Ready'); });
+}
+async function saveCheckpoint() {
+  if (!repo || busy) return;
+  const name = input('checkpoint-name').value.trim() || 'Checkpoint';
+  await run('Saving checkpoint…', async () => {
+    const before = (await api.checkpoints(repo!.id))[0]?.oid;
+    const list = await api.checkpoint(repo!.id, name); renderCheckpoints(list); input('checkpoint-name').value = '';
+    notify(list[0]?.oid !== before ? 'Checkpoint saved' : 'Nothing changed since HEAD or the last checkpoint');
+  }, true);
+}
+async function restoreCheckpoint(checkpoint: Checkpoint) {
+  if (!repo || busy) return;
+  if (!await confirm(`Restore "${checkpoint.label}" (${new Date(checkpoint.timestamp * 1000).toLocaleString()})? Your current files are saved as a checkpoint first.`, { title: 'Restore checkpoint', kind: 'warning' })) return;
+  dialog('checkpoint-dialog').close();
+  await mutate('Restoring checkpoint…', () => api.restoreCheckpoint(repo!.id, checkpoint.oid, repo!.token));
 }
 async function openPath(path: string, load = api.open) {
   const next = await load(path); saveDraft();
@@ -633,6 +680,8 @@ select('recent-repos').onchange = () => { const path = select('recent-repos').va
 button('welcome-open').onclick = () => { void chooseRepository(); };
 button('init-repo').onclick = () => { void initRepository(); };
 button('enable-versioning').onclick = () => { void enableVersioning(); };
+button('checkpoints-button').onclick = () => { void openCheckpoints(); };
+get<HTMLFormElement>('checkpoint-form').onsubmit = event => { event.preventDefault(); void saveCheckpoint(); };
 button('refresh').onclick = () => {
   const icon = get('refresh-icon'); icon.classList.remove('spinning'); void icon.getBoundingClientRect(); icon.classList.add('spinning');
   void run('Refreshing…', refresh);
@@ -675,7 +724,7 @@ window.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r') { event.preventDefault(); if (repo && !busy) void run('Refreshing…', refresh); }
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && get('commit-form').contains(document.activeElement)) { event.preventDefault(); void commitChanges(); }
 });
-window.addEventListener('focus', () => { if (repo && !busy && !document.querySelector('dialog[open]')) void run('Refreshing…', refresh); });
+window.addEventListener('focus', () => { if (repo && !busy && !document.querySelector('dialog[open]')) void run('Refreshing…', async () => { await refresh(); await autoCheckpoint(); }); });
 updateControls();
 if (isTauri()) {
   void getVersion().then(version => { get('app-version').textContent = 'v' + version; get('app-version').hidden = false; }).catch(report);

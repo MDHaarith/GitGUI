@@ -41,7 +41,7 @@ label { color: var(--ink-muted); }
 code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .muted { color: var(--muted); }
 [hidden] { display: none !important; }
-#app { height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 56px 52px auto minmax(0, 1fr) 32px; }
+#app { height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 56px 52px auto auto minmax(0, 1fr) 32px; }
 :is(.toolbar, .scopebar, .footer, .select-menu) { --surface-2: #141516; --surface-3: #191a1b; --surface-4: #202123; --edge-strong: #34343a; --edge-tertiary: #3e3e44; }
 .chrome-symbols { position: absolute; width: 0; height: 0; overflow: hidden; }
 .chrome-icon { display: block; width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
@@ -106,7 +106,7 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 #changes-count { display: inline-grid; place-items: center; min-width: 22px; height: 20px; padding: 0 7px; border-radius: 9999px; background: rgb(255 255 255 / .18); font: 500 12px Geist, system-ui, sans-serif; color: inherit; font-variant-numeric: tabular-nums; }
 .errorbar { grid-row: 3; color: var(--ink); background: var(--surface-2); border-block: 1px solid var(--edge-strong); display: flex; align-items: start; gap: 12px; padding: 8px 24px; }
 .errorbar p { margin: 8px 0; white-space: pre-wrap; max-height: 90px; overflow: auto; flex: 1; }
-.workspace { grid-row: 4; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 0 16px 16px; position: relative; }
+.workspace { grid-row: 5; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 0 16px 16px; position: relative; }
 .workspace.repository-open { grid-template-columns: 224px minmax(0, 1fr); }
 .repository-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
 .history-review { display: flex; flex: 1; gap: 16px; min-height: 0; min-width: 0; }
@@ -163,7 +163,7 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--canvas); }
 .primary:active:not(:disabled) { background: var(--accent-focus); border-color: var(--accent-focus); color: var(--on-primary); }
 #welcome-open span { margin-left: 12px; }
-.footer { grid-row: 5; min-width: 0; display: flex; align-items: center; padding: 0 20px; color: var(--muted); background: var(--canvas); border-top: 1px solid var(--edge); font-size: 12px; white-space: nowrap; }
+.footer { grid-row: 6; min-width: 0; display: flex; align-items: center; padding: 0 20px; color: var(--muted); background: var(--canvas); border-top: 1px solid var(--edge); font-size: 12px; white-space: nowrap; }
 .footer-segment { display: flex; align-items: center; gap: 6px; padding: 0 12px; border-left: 1px solid var(--edge); height: 14px; }
 .footer-segment:first-child { padding-left: 0; border-left: 0; }
 .footer .chrome-icon { width: 14px; height: 14px; }
@@ -217,6 +217,11 @@ dialog::backdrop { background: rgb(0 0 0 / .75); }
 .detail-controls select { max-width: min(380px, 100%); height: 36px; }
 #detail-diff { overflow: auto; min-height: 40px; }
 .branch-dialog { max-width: 540px; }
+.hintbar { grid-row: 4; color: var(--ink); background: var(--surface-1); border-bottom: 1px solid var(--edge); padding: 6px 24px; font-size: 13px; }
+.checkpoint-list { list-style: none; margin: 0; padding: 0; max-height: 50dvh; overflow: auto; display: grid; gap: 6px; }
+.checkpoint-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 8px; border: 1px solid var(--edge); border-radius: 8px; }
+.checkpoint-list li > span { grid-column: 1; font-size: 12px; overflow-wrap: anywhere; }
+.checkpoint-list li > button { grid-row: 1 / span 2; grid-column: 2; align-self: center; }
 .form-grid { display: grid; gap: 12px; }
 .form-grid input, .form-grid select { width: 100%; }
 .form-grid .row { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -243,7 +248,7 @@ dialog::backdrop { background: rgb(0 0 0 / .75); }
   .scopebar select { max-width: 150px; }
 }
 @media (max-width: 767px) {
-  #app { grid-template-rows: auto 52px auto minmax(0, 1fr) 32px; }
+  #app { grid-template-rows: auto 52px auto auto minmax(0, 1fr) 32px; }
   .toolbar { flex-wrap: wrap; gap: 8px; padding-block: 8px; }
   .toolbar-actions { order: 1; width: 100%; border-left: 0; padding-left: 0; }
   .toolbar .select-control { flex: 1; width: 140px; }

@@ -10,11 +10,16 @@ export interface Preview { text: string; truncated: boolean; binary: boolean }
 export interface CommitFile { id: string; path: string; oldPath: string | null; oldId: string | null; status: string }
 export interface CommitDetails { oid: string; parents: string[]; author: string; email: string; timestamp: number; message: string; parent: string | null; files: CommitFile[]; shallow: boolean }
 
+export interface Checkpoint { oid: string; timestamp: number; label: string; summary: string }
+
 export const api = {
   startup: () => invoke<string | null>('startup_path'),
   open: (path: string) => invoke<RepoInfo>('open_repository', { path }),
   init: (path: string) => invoke<RepoInfo>('init_repository', { path }),
   enableVersioning: (repoId: number) => invoke<RepoInfo>('enable_versioning', { repoId }),
+  checkpoints: (repoId: number) => invoke<Checkpoint[]>('list_checkpoints', { repoId }),
+  checkpoint: (repoId: number, label: string) => invoke<Checkpoint[]>('save_checkpoint', { repoId, label }),
+  restoreCheckpoint: (repoId: number, oid: string, token: string) => invoke<RepoInfo>('restore_checkpoint', { repoId, oid, token }),
   status: (repoId: number) => invoke<RepoInfo>('get_status', { repoId }),
   graph: (repoId: number, scope: string | null, limit: number, graphId: number | null = null) => invoke<GraphPage>('get_graph', { repoId, scope, limit, graphId }),
   details: (repoId: number, oid: string, parent: string | null = null) => invoke<CommitDetails>('get_commit', { repoId, oid, parent }),

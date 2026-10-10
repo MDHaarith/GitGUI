@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 — 2026-10-11
+
+- Add checkpoints: save restorable snapshots of all files (including new ones) without committing, automatically when you return to GitGUI, and restore them in one click.
+- Block commits that stage `.env` files or lines that look like API or private keys, and run the project's tests before code commits.
+- Explain the repository state (conflicts, detached HEAD, unpushed or missing commits) and common Git errors in plain English.
+- Rename Enable versioning to Enable safeguards; it also adds `.env` to `.gitignore` and sets the test command.
+
 ## 0.3.1 — 2026-10-11
 
 - Error /home/mdhaarith/Documents/Projects/GitGUI/.githooks/pre-commit already exists. Remove it or merge it by hand before enabling versioning.

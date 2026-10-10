@@ -4,6 +4,8 @@ use std::{fs, path::Path, process::Command};
 
 pub const MARKER: &str = "# GitGUI versioning";
 const AGENTS_HEADING: &str = "## Versioning (GitGUI)";
+/// API keys and private keys with recognisable prefixes (AWS, GitHub, OpenAI/Anthropic-style, Slack, Google, PEM).
+const SECRETS: &str = r"AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----";
 const READ_VERSION: &str = r#"version() {
   for f in package.json Cargo.toml VERSION; do
     git cat-file -e "$1$f" 2>/dev/null || continue
@@ -17,13 +19,20 @@ const READ_VERSION: &str = r#"version() {
 fn pre_commit() -> String {
     format!(
         r#"#!/bin/sh
-{MARKER}: commits that change code must bump the version and add a changelog entry.
-{READ_VERSION}fail() {{ echo "GitGUI versioning: $1" >&2; exit 1; }}
+{MARKER}: block secrets; code commits need passing tests, a version bump, and a changelog entry.
+{READ_VERSION}fail() {{ echo "GitGUI safeguards: $1" >&2; exit 1; }}
+git diff --cached --name-only --diff-filter=AR | grep -E '(^|/)\.env(\.[^/]*)?$' | grep -Evq '\.(example|sample|template)$' && fail "a .env file is staged. It usually holds passwords and API keys: unstage it and add it to .gitignore"
+git diff --cached -U0 --no-color | grep '^+[^+]' | grep -Eq '{SECRETS}' && fail "a staged line looks like an API key or private key. Move it to an ignored .env file and load it from the environment"
 git diff --cached --name-only | grep -Evq '(\.md$|^docs/|(^|/)tests?/|\.test\.|_test\.)' || exit 0
 new=$(version :)
 [ -n "$new" ] || fail "no version found in package.json, Cargo.toml, or VERSION"
 [ "$new" != "$(version HEAD: 2>/dev/null)" ] || fail "code changed but the version is still $new. Bump it (patch: fix, minor: feature, major: breaking change) and stage it"
 git show :CHANGELOG.md 2>/dev/null | grep -q "^## $new " || fail "stage a CHANGELOG.md entry headed '## $new — $(date +%F)'"
+tests=$(git config gitgui.testCommand)
+[ -z "$tests" ] && exit 0
+# shortcut: tests run on the working tree, not only the staged content.
+log=$(git rev-parse --git-path gitgui-tests.log)
+sh -c "$tests" >"$log" 2>&1 || {{ tail -n 20 "$log" >&2; fail "tests failed ($tests). Fix them before committing; full output: $log"; }}
 "#
     )
 }
@@ -65,6 +74,16 @@ pub fn current(root: &Path) -> Option<String> {
     read(&root.join("VERSION"))
         .and_then(|t| t.lines().next().map(|l| l.trim().to_owned()))
         .filter(|v| !v.is_empty())
+}
+/// The project's test command, if it has one GitGUI recognises.
+pub fn test_command(root: &Path) -> Option<&'static str> {
+    if let Some(text) = read(&root.join("package.json")) {
+        let script = serde_json::from_str::<serde_json::Value>(&text).ok()?["scripts"]["test"]
+            .as_str()?
+            .to_owned();
+        return (!script.contains("no test specified")).then_some("npm test");
+    }
+    root.join("Cargo.toml").exists().then_some("cargo test")
 }
 pub fn enabled(hooks: &Path) -> bool {
     read(&hooks.join("pre-commit")).is_some_and(|t| t.contains(MARKER))
@@ -192,9 +211,23 @@ pub fn enable(root: &Path, hooks: &Path) -> Result<()> {
         fs::write(root.join("CHANGELOG.md"), "# Changelog\n")
             .map_err(|e| format!("Cannot create CHANGELOG.md: {e}"))?;
     }
+    let ignore = read(&root.join(".gitignore")).unwrap_or_default();
+    if !ignore.lines().any(|l| l.trim() == ".env") {
+        let text = format!(
+            "{}{}.env\n",
+            ignore,
+            if ignore.is_empty() || ignore.ends_with('\n') {
+                ""
+            } else {
+                "\n"
+            }
+        );
+        fs::write(root.join(".gitignore"), text)
+            .map_err(|e| format!("Cannot update .gitignore: {e}"))?;
+    }
     let agents = read(&root.join("AGENTS.md")).unwrap_or_default();
     if !agents.contains(AGENTS_HEADING) {
-        let section = format!("{AGENTS_HEADING}\n\nGit hooks enforce this. Every commit that changes code must:\n\n1. Bump the version in package.json, Cargo.toml, or VERSION (whichever the project uses) and keep lockfiles in sync: patch for fixes, minor for features, major for breaking changes.\n2. Add `## <version> — <YYYY-MM-DD>` with one line per change above the previous entry in CHANGELOG.md.\n3. Commit both with the change. The post-commit hook tags `v<version>`. Never use `git commit --no-verify`.\n");
+        let section = format!("{AGENTS_HEADING}\n\nGit hooks enforce this. Every commit that changes code must:\n\n1. Bump the version in package.json, Cargo.toml, or VERSION (whichever the project uses) and keep lockfiles in sync: patch for fixes, minor for features, major for breaking changes.\n2. Add `## <version> — <YYYY-MM-DD>` with one line per change above the previous entry in CHANGELOG.md.\n3. Commit both with the change. The post-commit hook tags `v<version>`.\n\nThe hook also blocks commits with failing tests (`git config gitgui.testCommand`), staged `.env` files, or lines that look like API keys. Keep secrets in `.env` and read them from the environment. Never use `git commit --no-verify`.\n");
         let text = if agents.trim().is_empty() {
             section
         } else {

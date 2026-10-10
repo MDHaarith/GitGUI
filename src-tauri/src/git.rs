@@ -119,6 +119,43 @@ pub struct CommitDetails {
     pub shallow: bool,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct Checkpoint {
+    pub oid: String,
+    pub timestamp: i64,
+    pub label: String,
+    pub summary: String,
+}
+const CHECKPOINTS: &str = "refs/gitgui/checkpoints";
+const CHECKPOINT_LIMIT: usize = 100;
+
+/// Plain-English summary of `git diff --numstat` output.
+pub fn summarize(numstat: &str) -> String {
+    let (mut added, mut deleted, mut files) = (0u64, 0u64, Vec::new());
+    for row in numstat.lines() {
+        let mut fields = row.splitn(3, '\t');
+        if let (Some(a), Some(d), Some(path)) = (fields.next(), fields.next(), fields.next()) {
+            added += a.parse().unwrap_or(0);
+            deleted += d.parse().unwrap_or(0);
+            files.push(path.rsplit('/').next().unwrap_or(path));
+        }
+    }
+    if files.is_empty() {
+        return String::new();
+    }
+    let more = if files.len() > 3 {
+        format!(" and {} more", files.len() - 3)
+    } else {
+        String::new()
+    };
+    format!(
+        "{} file{} changed (+{added} −{deleted}): {}{more}",
+        files.len(),
+        if files.len() == 1 { "" } else { "s" },
+        files[..files.len().min(3)].join(", ")
+    )
+}
+
 struct Output {
     stdout: Vec<u8>,
     stderr: String,
@@ -483,6 +520,52 @@ impl Backend {
     pub fn enable_versioning(&mut self, id: u64) -> Result<RepoInfo> {
         let repo = self.repo(id)?;
         crate::version::enable(&repo.root, &repo.metadata("hooks")?)?;
+        if let Some(tests) = crate::version::test_command(&repo.root) {
+            if optional(&repo.root, &["config", "gitgui.testCommand"])?.is_none() {
+                repo.write(
+                    &argv(&["config", "gitgui.testCommand", tests]),
+                    None,
+                    None,
+                    None,
+                )?;
+            }
+        }
+        repo.info()
+    }
+    pub fn checkpoints(&mut self, id: u64) -> Result<Vec<Checkpoint>> {
+        self.repo(id)?.checkpoint_list()
+    }
+    pub fn checkpoint(&mut self, id: u64, label: &str) -> Result<Vec<Checkpoint>> {
+        let label = label.trim();
+        if label.is_empty() || label.len() > 200 || label.contains('\0') {
+            return Err("Name the checkpoint (up to 200 characters).".into());
+        }
+        let repo = self.repo(id)?;
+        repo.save_checkpoint(label)?;
+        repo.checkpoint_list()
+    }
+    pub fn restore_checkpoint(&mut self, id: u64, oid: &str, token: &str) -> Result<RepoInfo> {
+        valid_oid(oid)?;
+        let repo = self.repo(id)?;
+        let info = repo.checked(token)?;
+        repo.require_normal(&info)?;
+        if !repo.checkpoint_list()?.iter().any(|c| c.oid == oid) {
+            return Err("That checkpoint no longer exists. Refresh the list.".into());
+        }
+        repo.save_checkpoint("Before restoring a checkpoint")?;
+        repo.write(
+            &argv(&[
+                "restore",
+                &format!("--source={oid}"),
+                "--staged",
+                "--worktree",
+                "--",
+                ".",
+            ]),
+            None,
+            None,
+            None,
+        )?;
         repo.info()
     }
     fn repo(&mut self, id: u64) -> Result<&mut Repository> {
@@ -913,6 +996,124 @@ impl Repository {
             &self.root,
             &argv(&["rev-parse", "--git-path", name]),
         )?))))
+    }
+    /// Tree of the whole working copy (tracked and untracked, minus ignored files) via a throwaway index.
+    fn snapshot(&self) -> Result<String> {
+        let temp = self.metadata("gitgui-checkpoint-index")?;
+        match fs::copy(self.metadata("index")?, &temp) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let _ = fs::remove_file(&temp);
+            }
+            Err(e) => return Err(format!("Cannot prepare the checkpoint: {e}")),
+        }
+        let git = |args: &[&str]| -> Result<Vec<u8>> {
+            let output = Command::new(if cfg!(target_os = "linux") {
+                "/usr/bin/git"
+            } else {
+                "git"
+            })
+            .current_dir(&self.root)
+            .args(["--no-pager", "-c", "core.fsmonitor=false"])
+            .args(args)
+            .env("GIT_INDEX_FILE", &temp)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("Could not start Git: {e}"))?;
+            if output.status.success() {
+                Ok(output.stdout)
+            } else {
+                Err(text(&output.stderr).trim().to_owned())
+            }
+        };
+        let tree = git(&["add", "-A", "--", "."]).and_then(|_| git(&["write-tree"]));
+        let _ = fs::remove_file(&temp);
+        Ok(text(line(&tree?)))
+    }
+    /// Saves a checkpoint unless nothing changed since HEAD or the latest checkpoint.
+    fn save_checkpoint(&self, label: &str) -> Result<bool> {
+        let tree = self.snapshot()?;
+        let list = self.checkpoint_refs()?;
+        if list.first().is_some_and(|(_, _, latest)| *latest == tree) {
+            return Ok(false);
+        }
+        let head = self.head()?;
+        let base = match &head {
+            Some(head) => head.clone(),
+            None => text(line(&read(&self.root, &argv(&["mktree"]))?)),
+        };
+        let summary = summarize(&text(&read(
+            &self.root,
+            &argv(&["diff", "--numstat", &base, &tree]),
+        )?));
+        if summary.is_empty() {
+            return Ok(false);
+        }
+        let mut args = argv(&[
+            "-c",
+            "user.name=GitGUI",
+            "-c",
+            "user.email=gitgui@localhost",
+            "commit-tree",
+            &tree,
+            "-m",
+            label,
+            "-m",
+            &summary,
+        ]);
+        if let Some(head) = head {
+            args.extend([os("-p"), os(&head)]);
+        }
+        let oid = text(line(&read(&self.root, &args)?));
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_nanos();
+        read(
+            &self.root,
+            &argv(&["update-ref", &format!("{CHECKPOINTS}/{nanos:020}"), &oid]),
+        )?;
+        for (name, _, _) in list.iter().skip(CHECKPOINT_LIMIT - 1) {
+            read(&self.root, &argv(&["update-ref", "-d", name]))?;
+        }
+        Ok(true)
+    }
+    /// (ref name, commit, tree), newest first.
+    fn checkpoint_refs(&self) -> Result<Vec<(String, String, String)>> {
+        let output = read(
+            &self.root,
+            &argv(&[
+                "for-each-ref",
+                "--sort=-refname",
+                "--format=%(refname) %(objectname) %(tree)",
+                CHECKPOINTS,
+            ]),
+        )?;
+        Ok(text(&output)
+            .lines()
+            .filter_map(|l| {
+                let f: Vec<_> = l.split(' ').collect();
+                (f.len() == 3).then(|| (f[0].to_owned(), f[1].to_owned(), f[2].to_owned()))
+            })
+            .collect())
+    }
+    fn checkpoint_list(&self) -> Result<Vec<Checkpoint>> {
+        let output = read(&self.root, &argv(&["for-each-ref", "--sort=-refname", "--format=%(objectname)%00%(committerdate:unix)%00%(contents:subject)%00%(contents:body)%00", CHECKPOINTS]))?;
+        Ok(text(&output)
+            .split("\0\n")
+            .filter_map(|record| {
+                let f: Vec<_> = record.split('\0').collect();
+                (f.len() >= 4).then(|| Checkpoint {
+                    oid: f[0].to_owned(),
+                    timestamp: f[1].parse().unwrap_or(0),
+                    label: f[2].to_owned(),
+                    summary: f[3].trim().to_owned(),
+                })
+            })
+            .collect())
     }
     fn shallow(&self) -> Result<HashSet<String>> {
         let path = self.metadata("shallow")?;

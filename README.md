@@ -46,14 +46,24 @@ checksum are kept beside the extracted application. The toolbar displays the
 native application version. Repository data and saved drafts use the existing
 `com.gitgui.app` application profile.
 
-**Init repository** creates a repository with versioning enabled; **Enable
-versioning** in Changes adds it to an existing one. GitGUI installs pre-commit and
+**Init repository** creates a repository with safeguards enabled; **Enable
+safeguards** in Changes adds them to an existing one. The hooks block staged `.env`
+files and lines that look like API or private keys, and run the test command in
+`git config gitgui.testCommand` (set to `npm test` or `cargo test` when detected)
+before code commits. GitGUI installs pre-commit and
 post-commit hooks and adds `VERSION`, `CHANGELOG.md`, and an `AGENTS.md` section
 where missing. Commits that change code (anything but Markdown, `docs/`, and tests)
 must bump the version in `package.json`, `Cargo.toml`, or `VERSION` and add a
 changelog entry; each new version is tagged `v<version>`. The commit form's version
 selector does the bump, lockfile sync, and changelog entry for you, so command-line
 agents and GitGUI follow the same rule.
+
+**Checkpoints** save a snapshot of every file, including new ones, without
+committing or touching what you staged. GitGUI also saves one when you come back to
+the window (at most every 10 minutes, only when files changed) and keeps the latest
+100 under `refs/gitgui/checkpoints`. Restoring one saves the current files first and
+keeps files created afterwards. A hint bar and error messages explain conflicts,
+detached HEAD, and sync problems in plain English.
 
 The app remembers the last selected repository, offers the eight most recently
 opened repositories, and keeps commit drafts locally for each repository.

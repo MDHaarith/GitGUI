@@ -1,6 +1,6 @@
 pub mod git;
 pub mod version;
-use git::{Backend, CommitDetails, GraphPage, Preview, Progress, RepoInfo};
+use git::{Backend, Checkpoint, CommitDetails, GraphPage, Preview, Progress, RepoInfo};
 use std::sync::{Arc, Mutex};
 use tauri::{ipc::Channel, State};
 
@@ -51,6 +51,33 @@ async fn init_repository(path: String, state: State<'_, AppState>) -> git::Resul
 #[tauri::command]
 async fn enable_versioning(repo_id: u64, state: State<'_, AppState>) -> git::Result<RepoInfo> {
     task(state, true, move |b| b.enable_versioning(repo_id)).await
+}
+#[tauri::command]
+async fn list_checkpoints(
+    repo_id: u64,
+    state: State<'_, AppState>,
+) -> git::Result<Vec<Checkpoint>> {
+    task(state, false, move |b| b.checkpoints(repo_id)).await
+}
+#[tauri::command]
+async fn save_checkpoint(
+    repo_id: u64,
+    label: String,
+    state: State<'_, AppState>,
+) -> git::Result<Vec<Checkpoint>> {
+    task(state, true, move |b| b.checkpoint(repo_id, &label)).await
+}
+#[tauri::command]
+async fn restore_checkpoint(
+    repo_id: u64,
+    oid: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.restore_checkpoint(repo_id, &oid, &token)
+    })
+    .await
 }
 #[tauri::command]
 async fn get_status(repo_id: u64, state: State<'_, AppState>) -> git::Result<RepoInfo> {
@@ -215,6 +242,9 @@ pub fn run() {
             open_repository,
             init_repository,
             enable_versioning,
+            list_checkpoints,
+            save_checkpoint,
+            restore_checkpoint,
             get_status,
             get_graph,
             get_commit,
