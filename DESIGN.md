@@ -192,6 +192,11 @@ Canvas, accent, and text values match the supplied reference. The reference did
 not specify hexadecimal values for the four surfaces or stronger hairlines;
 those values above are GitGUI approximations, not verified Linear CSS tokens.
 
+The supplied toolbar/dropdown/footer reference uses local surface-2 #141516,
+surface-3 #191a1b, surface-4 #202123, strong hairline #34343a, and tertiary
+hairline #3e3e44. These overrides apply only to those controls; the graph and
+workspace keep their existing tokens.
+
 Use lavender for the brand mark, primary actions, focus, and links. Use neutral
 surfaces for hover and selection. The actual Git graph retains its distinct lane
 colors; green additions and red removals retain their functional diff meanings.
@@ -248,8 +253,14 @@ pill shaped.
 - **changes-panel:** Surface-1 file list, diff, and composer with hairline dividers.
 - **dialog:** Surface-2, strong hairline, 12px corners, native modal behavior.
 - **text-input:** Surface-1, 8px corners, 8px by 12px padding, visible focus outline.
-- **top-nav:** Canvas with the GitGUI mark and existing repository actions.
-- **footer:** Compact status text on canvas.
+- **top-nav:** Canvas with the GitGUI mark, 32px icon buttons, recent repository
+  picker, and repository/branch context. The scope row includes a grouped branch
+  dropdown, existing history search, and a lavender Changes action.
+- **dropdown:** 8px trigger corners, 12px popup corners, grouped options, checkmark
+  selection, and a Current badge. Native popovers handle dismissal; arrow keys,
+  Home/End, Enter/Space, and Escape preserve focus and existing select behavior.
+- **footer:** Hairline-separated branch, ahead/behind, loaded commit count, and
+  live status segments on canvas. Keep operation progress and elapsed time.
 
 Primary actions and inputs grow to at least 44px on coarse-pointer viewports.
 Graph rows retain their fixed geometry and existing keyboard navigation.

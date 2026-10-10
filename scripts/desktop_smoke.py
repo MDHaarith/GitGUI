@@ -109,6 +109,17 @@ with tempfile.TemporaryDirectory(prefix="gitgui-native-") as temporary:
         assert execute("return document.querySelector('.ref-head').parentElement.textContent.includes('main')")
         assert execute("const side=document.getElementById('branch-sidebar').getBoundingClientRect(); const graph=document.getElementById('history').getBoundingClientRect(); return side.right <= graph.left && Math.abs(side.height-graph.height)<1")
         graph_branch = execute("return [...document.getElementById('scope').options].find(o=>o.textContent==='feat/graph').value")
+        click('#scope-button'); wait("document.getElementById('scope-menu').matches(':popover-open')")
+        execute("for(const key of ['Home','ArrowDown','ArrowDown','Enter']) document.getElementById('scope-button').dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}))")
+        idle()
+        assert execute("return document.getElementById('scope').value") == graph_branch
+        assert execute("return document.getElementById('loaded-count').textContent") == '5 commits loaded'
+        assert execute("return document.activeElement.id") == 'scope-button'
+        click('#scope-button')
+        execute("for(const key of ['Home','Enter']) document.getElementById('scope-button').dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}))")
+        idle()
+        assert execute("return document.getElementById('history-rows').children.length") == expected
+        print("PASS styled scope dropdown, keyboard selection, focus, and footer counts", flush=True)
         click('#ref-list .ref-item[data-scope="' + graph_branch + '"]'); idle()
         assert execute("return document.getElementById('history-rows').children.length") == 5
         assert execute("return document.getElementById('scope').value") == graph_branch
@@ -206,7 +217,8 @@ with tempfile.TemporaryDirectory(prefix="gitgui-native-") as temporary:
         draft = execute("return document.getElementById('summary').value")
         execute("localStorage.setItem('recentRepositories', JSON.stringify([arguments[0],arguments[1]]))", str(root), str(other))
         click("#refresh"); idle()
-        choose("#recent-repos", str(other)); idle()
+        click('#recent-repos-button')
+        click('#recent-repos-menu .select-option[data-value="' + str(other) + '"]'); idle()
         assert execute("return document.getElementById('history-rows').children.length") == 1
         choose("#recent-repos", str(root)); idle()
         assert execute("return document.getElementById('summary').value") == draft

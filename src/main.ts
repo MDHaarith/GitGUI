@@ -4,27 +4,40 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo } from './git.ts';
 import { findCommits, layoutHistory, paintGraph, type Layout } from './graph.ts';
 import { numberDiff } from './diff.ts';
+import { wireDropdown } from './dropdown.ts';
 import './styles.css';
 
 const app = document.getElementById('app')!;
 app.innerHTML = `
+  <svg class="chrome-symbols" aria-hidden="true"><defs>
+    <symbol id="chrome-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 7.2v9.6M18 10.2c0 4-6 3-11 7"/></symbol>
+    <symbol id="chrome-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="chrome-fetch" viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></symbol>
+    <symbol id="chrome-pull" viewBox="0 0 24 24"><path d="M12 3v13M7 11l5 5 5-5"/></symbol>
+    <symbol id="chrome-push" viewBox="0 0 24 24"><path d="M12 21V8M7 13l5-5 5 5"/></symbol>
+    <symbol id="chrome-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v4.5h-4.5"/></symbol>
+    <symbol id="chrome-panel" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M14.5 4.5v15"/></symbol>
+    <symbol id="chrome-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="chrome-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="chrome-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  </defs></svg>
   <header class="toolbar">
     <span class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v10a4 4 0 0 0 4 4h1m5-14v2a5 5 0 0 1-5 5H7"/><circle cx="7" cy="5" r="2.5"/><circle cx="17" cy="5" r="2.5"/><circle cx="15" cy="19" r="2.5"/></svg>GitGUI</span>
     <button class="secondary" id="open-repo">Open repository</button>
-    <select id="recent-repos" aria-label="Recent repositories"><option value="">Recent repositories</option></select>
-    <div class="toolbar-actions"><button id="fetch" data-repo>Fetch</button><button id="pull" data-repo>Pull</button><button id="push" data-repo>Push</button>
-    <button id="refresh" data-repo>Refresh</button></div>
-    <span class="repo-name" id="repo-name">No repository selected</span>
+    <select id="recent-repos" aria-label="Repository"><option value="">Recent repositories</option></select>
+    <div class="toolbar-actions"><button id="fetch" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-fetch"/></svg>Fetch</button><button id="pull" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-pull"/></svg>Pull</button><button id="push" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-push"/></svg>Push</button>
+    <button id="refresh" data-repo><svg class="chrome-icon" id="refresh-icon" aria-hidden="true"><use href="#chrome-refresh"/></svg>Refresh</button></div>
+    <span class="repo-name" id="repo-name"><span id="repo-label">No repository selected</span><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-chevron"/></svg><span class="context-branch" id="repo-branch" hidden></span></span>
   </header>
   <nav class="scopebar" aria-label="History and repository actions">
     <label class="muted" for="scope">Scope</label><select id="scope" data-repo><option value="">All branches</option></select>
     <div class="history-search" role="search" aria-label="Search loaded history">
-      <input id="history-search" type="search" aria-label="Search loaded commits by message, author, or hash" placeholder="Search loaded commits" autocomplete="off">
+      <div class="search-field"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-search"/></svg><input id="history-search" type="search" aria-label="Search loaded commits by message, author, or hash" placeholder="Search loaded commits" autocomplete="off"></div>
       <span id="search-count" class="muted" aria-live="polite"></span>
-      <button id="search-prev" aria-label="Previous matching commit" title="Previous match (Shift+Enter)">↑</button><button id="search-next" aria-label="Next matching commit" title="Next match (Enter)">↓</button>
+      <button id="search-prev" aria-label="Previous matching commit" title="Previous match (Shift+Enter)"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-up"/></svg></button><button id="search-next" aria-label="Next matching commit" title="Next match (Enter)"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-down"/></svg></button>
     </div>
     <span class="spacer"></span>
-    <button id="details-button" data-repo>Details</button>
+    <button id="details-button" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-panel"/></svg>Details</button>
     <button class="chip" id="changes-button" data-repo>Changes <span class="mono" id="changes-count">0</span></button>
   </nav>
   <div class="errorbar" id="error" role="alert" hidden><p id="error-text"></p><button id="dismiss-error" aria-label="Dismiss error">Close</button></div>
@@ -70,7 +83,7 @@ app.innerHTML = `
     </section>
     </div>
   </main>
-  <footer class="footer"><span id="branch-status">No repository</span><span id="status" role="status" aria-live="polite">Ready</span><span id="operation-feedback" hidden><progress id="operation-progress" aria-label="Git operation progress" max="100"></progress><span id="operation-elapsed"></span></span></footer>
+  <footer class="footer"><span class="footer-segment"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-branch"/></svg><span id="branch-status">No repository</span></span><span class="footer-segment" id="sync-status" hidden><span id="ahead-count">+0</span><span id="behind-count">−0</span></span><span class="footer-segment" id="loaded-count" hidden></span><span class="footer-segment" id="status" role="status" aria-live="polite">Ready</span><span class="footer-segment" id="operation-feedback" hidden><progress id="operation-progress" aria-label="Git operation progress" max="100"></progress><span id="operation-elapsed"></span></span></footer>
   <dialog class="branch-dialog" id="branches" aria-labelledby="branches-title">
     <div class="dialog-head"><h2 id="branches-title">Branches</h2><form method="dialog"><button type="submit">Close</button></form></div>
     <div class="form-grid"><label for="branch-select">Switch to a local branch</label><select id="branch-select"></select><div class="row"><button class="chip" id="switch-branch">Switch branch</button></div>
@@ -91,6 +104,8 @@ function input(id: string) { return get<HTMLInputElement>(id); }
 function select(id: string) { return get<HTMLSelectElement>(id); }
 function dialog(id: string) { return get<HTMLDialogElement>(id); }
 function option(value: string, label: string) { const node = document.createElement('option'); node.value = value; node.textContent = label; return node; }
+const scopeDropdown = wireDropdown(select('scope'));
+const repoDropdown = wireDropdown(select('recent-repos'), () => button('open-repo').click());
 
 let repo: RepoInfo | null = null;
 let page: GraphPage | null = null;
@@ -165,6 +180,8 @@ function updateControls() {
   button('details-button').setAttribute('aria-expanded', String(!get('details').hidden));
   updateDetailControls();
   renderRecentRepositories();
+  scopeDropdown.sync(); repoDropdown.sync();
+  get('loaded-count').hidden = !repo; get('loaded-count').textContent = (page?.commits.length ?? 0) + ' commits loaded';
   get('app').setAttribute('aria-busy', String(busy));
 }
 async function run(label: string, action: () => Promise<void>, mutating = false) {
@@ -220,9 +237,11 @@ function renderInfo() {
   get('welcome').hidden = !!repo;
   get('branch-sidebar').hidden = !repo;
   get('workspace').classList.toggle('repository-open', !!repo);
-  get('repo-name').textContent = repo ? repo.root.split('/').filter(Boolean).pop() + ' · ' + (repo.branch ?? 'detached HEAD') : 'No repository selected';
+  get('repo-label').textContent = repo ? repo.root.split('/').filter(Boolean).pop()! : 'No repository selected';
+  get('repo-branch').textContent = repo?.branch ?? 'detached HEAD'; get('repo-branch').hidden = !repo;
   get('repo-name').title = repo?.root ?? '';
-  get('branch-status').textContent = repo ? (repo.branch ?? 'detached ' + short(repo.head ?? '')) + ' +' + repo.ahead + ' −' + repo.behind : 'No repository';
+  get('branch-status').textContent = repo ? (repo.branch ?? 'detached ' + short(repo.head ?? '')) : 'No repository';
+  get('sync-status').hidden = !repo; get('ahead-count').textContent = '+' + (repo?.ahead ?? 0); get('behind-count').textContent = '−' + (repo?.behind ?? 0);
   get('branch-status').title = repo?.upstream ? 'Upstream: ' + repo.upstream : 'No upstream';
   get('changes-count').textContent = String(repo?.files.length ?? 0);
   get('staged-count').textContent = stagedFiles().length + ' staged ' + (stagedFiles().length === 1 ? 'file' : 'files');
@@ -241,7 +260,7 @@ function scopeOptions() {
     const section = document.createElement('section'); section.className = 'ref-group';
     const title = document.createElement('h3'); title.textContent = group.label + ' · ' + refs.length; section.append(title);
     for (const ref of refs) {
-      group.append(option(ref.id, ref.name));
+      const scopeOption = option(ref.id, ref.name); scopeOption.dataset.current = String(ref.isHead); group.append(scopeOption);
       const item = document.createElement('button'); item.type = 'button'; item.className = 'ref-item'; item.dataset.repo = ''; item.dataset.scope = ref.id; item.dataset.kind = kind;
       item.title = ref.fullName; item.setAttribute('aria-label', kind + ' ' + ref.name + (ref.isHead ? ', current branch' : ''));
       item.setAttribute('aria-pressed', String(scope === ref.id));
@@ -370,7 +389,7 @@ async function refresh() {
   get('working-diff').replaceChildren();
   epoch++; repo = await api.status(repo.id); renderInfo(); renderFiles(); await loadGraph();
   await refreshWorkingPreview();
-  notify(page?.commits.length + ' commits loaded · refreshed ' + new Date().toLocaleTimeString());
+  notify('Refreshed ' + new Date().toLocaleTimeString());
 }
 async function chooseRepository() {
   await run('Opening repository…', async () => {
@@ -596,7 +615,10 @@ function remoteUrl() { get('remote-url').textContent = repo?.remotes.find(remote
 button('open-repo').onclick = () => { void chooseRepository(); };
 select('recent-repos').onchange = () => { const path = select('recent-repos').value; if (path && path !== repo?.root) void run('Opening repository…', () => openPath(path)); };
 button('welcome-open').onclick = () => { void chooseRepository(); };
-button('refresh').onclick = () => { void run('Refreshing…', refresh); };
+button('refresh').onclick = () => {
+  const icon = get('refresh-icon'); icon.classList.remove('spinning'); void icon.getBoundingClientRect(); icon.classList.add('spinning');
+  void run('Refreshing…', refresh);
+};
 button('fetch').onclick = () => chooseRemote('fetch');
 button('pull').onclick = () => { if (repo) void mutate('Pulling fast-forward update…', () => api.pull(repo!.id, repo!.token, progressReporter())); };
 button('push').onclick = () => { if (!repo) return; if (!repo.upstream) chooseRemote('push'); else void mutate('Pushing current branch…', () => api.push(repo!.id, null, repo!.token, progressReporter())); };
