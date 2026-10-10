@@ -1,0 +1,457 @@
+import { isTauri } from '@tauri-apps/api/core';
+import { open, confirm, message as nativeMessage } from '@tauri-apps/plugin-dialog';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { api, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo } from './git.ts';
+import { layoutHistory, paintGraph, type Layout } from './graph.ts';
+import './styles.css';
+
+const app = document.getElementById('app')!;
+app.innerHTML = `
+  <header class="toolbar">
+    <span class="brand">gitgui</span>
+    <button id="open-repo">Open repository</button>
+    <button id="fetch" data-repo>Fetch</button><button id="pull" data-repo>Pull</button><button id="push" data-repo>Push</button>
+    <button id="refresh" data-repo>Refresh</button>
+    <span class="repo-name" id="repo-name">No repository selected</span>
+  </header>
+  <nav class="scopebar" aria-label="History and repository actions">
+    <label class="muted" for="scope">Scope</label><select id="scope" data-repo><option value="">All branches</option></select>
+    <span class="spacer"></span>
+    <button id="branch-actions" data-repo>Branches</button><button id="details-button" data-repo>Details</button>
+    <button class="chip" id="changes-button" data-repo>Changes <span class="mono" id="changes-count">0</span></button>
+  </nav>
+  <div class="errorbar" id="error" role="alert" hidden><p id="error-text"></p><button id="dismiss-error" aria-label="Dismiss error">Close</button></div>
+  <main class="workspace">
+    <section class="history" id="history" aria-label="Repository history">
+      <div class="empty" id="welcome"><h1>Your repository, in view.</h1><p>Follow branches and merges. Review changes. Make a commit.</p><button class="primary" id="welcome-open">Open repository</button></div>
+      <div class="empty" id="empty-history" hidden><h1>No commits yet</h1><p>Open Changes to stage files and create the first commit.</p></div>
+      <div class="graph-scene" id="graph-scene" hidden>
+        <table class="history-table" aria-label="Commit graph and history">
+          <colgroup><col class="graph"><col><col class="author"><col class="date"><col class="sha"></colgroup>
+          <thead><tr><th scope="col" aria-label="Graph"></th><th class="description" scope="col">Description</th><th scope="col">Author</th><th class="date-heading" scope="col">Date</th><th scope="col">Commit</th></tr></thead>
+          <tbody id="history-rows"></tbody>
+        </table>
+        <svg class="graph-svg" id="graph" role="img" aria-label="Commit parent relationships"></svg>
+      </div>
+      <button class="load-more" id="load-more" hidden>Load more history</button>
+    </section>
+    <section class="changes" id="changes" aria-label="Working changes" hidden>
+      <header class="panelbar"><h2>Working changes</h2><span id="operation-note" class="muted"></span><span class="spacer"></span><button id="close-changes">Close</button></header>
+      <div class="changes-body">
+        <div class="file-list" id="file-list"></div>
+        <div class="working-preview"><div class="preview-label" id="working-path">Select a file to review its diff.</div><pre class="diff" id="working-diff"></pre></div>
+        <form class="composer" id="commit-form">
+          <label for="summary">Summary</label><input id="summary" required maxlength="1000" autocomplete="off" placeholder="Describe this commit">
+          <label for="body">Description <span class="muted">(optional)</span></label><textarea id="body" maxlength="64000" rows="3"></textarea>
+          <div class="commit-row"><span id="staged-count">0 staged files</span><button class="primary" id="commit-button" type="submit" data-repo>Commit staged</button></div>
+        </form>
+      </div>
+    </section>
+  </main>
+  <footer class="footer"><span id="branch-status">No repository</span><span id="status" role="status" aria-live="polite">Ready</span></footer>
+  <dialog id="details" aria-labelledby="detail-title">
+    <div class="dialog-head"><h2 id="detail-title">Commit details</h2><form method="dialog"><button type="submit">Close</button></form></div>
+    <div class="metadata"><span id="detail-author"></span><span id="detail-date"></span><input id="detail-sha" readonly aria-label="Full commit object ID"></div>
+    <pre class="message" id="detail-message"></pre><div class="parents" id="detail-parents"></div>
+    <div class="detail-controls"><label for="detail-parent">Compare to</label><select id="detail-parent"></select><label for="detail-file">Files</label><select id="detail-file"></select></div>
+    <pre class="diff" id="detail-diff"></pre>
+  </dialog>
+  <dialog class="branch-dialog" id="branches" aria-labelledby="branches-title">
+    <div class="dialog-head"><h2 id="branches-title">Branches</h2><form method="dialog"><button type="submit">Close</button></form></div>
+    <div class="form-grid"><label for="branch-select">Switch to a local branch</label><select id="branch-select"></select><div class="row"><button class="chip" id="switch-branch">Switch branch</button></div>
+      <label for="branch-name">Create branch</label><input id="branch-name" placeholder="feature/name" maxlength="1024" autocomplete="off">
+      <label for="branch-start">Start at</label><select id="branch-start"><option value="head">Current HEAD</option><option value="selected">Selected commit</option></select>
+      <div class="row"><button class="chip" id="create-branch">Create branch</button></div><p id="branch-note"></p>
+    </div>
+  </dialog>
+  <dialog class="branch-dialog" id="remote-dialog" aria-labelledby="remote-title">
+    <div class="dialog-head"><h2 id="remote-title">Choose remote</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
+    <form id="remote-form" class="form-grid"><label for="remote-select">Remote</label><select id="remote-select"></select><p id="remote-url"></p><p id="remote-note"></p><button class="primary" id="remote-submit" type="submit">Continue</button></form>
+  </dialog>
+`;
+
+function get<T extends HTMLElement = HTMLElement>(id: string) { return document.getElementById(id) as T; }
+function button(id: string) { return get<HTMLButtonElement>(id); }
+function input(id: string) { return get<HTMLInputElement>(id); }
+function select(id: string) { return get<HTMLSelectElement>(id); }
+function dialog(id: string) { return get<HTMLDialogElement>(id); }
+function option(value: string, label: string) { const node = document.createElement('option'); node.value = value; node.textContent = label; return node; }
+
+let repo: RepoInfo | null = null;
+let page: GraphPage | null = null;
+let layout: Layout = layoutHistory([]);
+let selected: string | null = null;
+let details: CommitDetails | null = null;
+let scope: string | null = null;
+let limit = 200;
+let busy = false;
+let writing = false;
+let epoch = 0;
+let detailRequest = 0;
+let workingRequest = 0;
+let workingFile: { id: string; staged: boolean } | null = null;
+let remoteAction: 'fetch' | 'push' = 'fetch';
+const checked = { staged: new Set<string>(), unstaged: new Set<string>() };
+
+function stored(key: string) { try { return localStorage.getItem(key); } catch { return null; } }
+function save(key: string, value: string) { try { localStorage.setItem(key, value); } catch { /* Storage may be unavailable; the current draft remains in memory. */ } }
+function removeStored(key: string) { try { localStorage.removeItem(key); } catch { /* Keep the successful commit usable without storage. */ } }
+function draftKey() { return 'draft:' + (repo?.root ?? ''); }
+function saveDraft() { if (repo) save(draftKey(), JSON.stringify({ summary: input('summary').value, body: get<HTMLTextAreaElement>('body').value })); }
+function restoreDraft() {
+  input('summary').value = ''; get<HTMLTextAreaElement>('body').value = '';
+  try { const value = JSON.parse(stored(draftKey()) ?? '{}'); input('summary').value = typeof value.summary === 'string' ? value.summary : ''; get<HTMLTextAreaElement>('body').value = typeof value.body === 'string' ? value.body : ''; } catch { /* Ignore a malformed saved draft. */ }
+}
+function notify(message: string) { get('status').textContent = message; }
+function report(error: unknown) { get('error-text').textContent = String(error).slice(0, 4000); get('error').hidden = false; notify('Operation failed. Review the message and refresh if needed.'); }
+function normal() { return !!repo && !repo.operation; }
+function stagedFiles() { return repo?.files.filter(file => file.index !== '.' && !file.untracked && !file.conflicted) ?? []; }
+function updateControls() {
+  document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('[data-repo]').forEach(node => { node.disabled = busy || !repo; });
+  button('open-repo').disabled = busy; button('welcome-open').disabled = busy;
+  button('details-button').disabled = busy || !selected;
+  button('branch-actions').disabled = busy || !repo;
+  button('fetch').disabled = busy || !normal() || !repo?.remotes.length;
+  button('pull').disabled = busy || !normal() || !repo?.upstream;
+  button('push').disabled = busy || !normal() || !repo?.branch || !repo.remotes.length;
+  button('load-more').disabled = busy || limit >= 10000;
+  button('commit-button').disabled = busy || !normal() || !stagedFiles().length || !input('summary').value.trim();
+  button('switch-branch').disabled = busy || !normal() || !select('branch-select').value;
+  button('create-branch').disabled = busy || !normal() || !repo?.head || !input('branch-name').value.trim();
+  button('remote-submit').disabled = busy || !select('remote-select').value;
+  select('scope').disabled = busy || !repo;
+  get('app').setAttribute('aria-busy', String(busy));
+}
+async function run(label: string, action: () => Promise<void>, mutating = false) {
+  if (busy) return;
+  busy = true; writing = mutating; notify(label); updateControls();
+  try { await action(); }
+  catch (error) {
+    report(error);
+    if (repo) {
+      try { repo = await api.status(repo.id); epoch++; renderInfo(); renderFiles(); await loadGraph(); } catch { /* Preserve the original error. */ }
+    }
+  } finally { busy = false; writing = false; if (repo) renderFiles(); updateControls(); }
+}
+function short(oid: string) { return oid.slice(0, 8); }
+function relative(timestamp: number) {
+  const date = new Date(timestamp * 1000);
+  if (!Number.isFinite(date.getTime())) return 'Unknown';
+  const age = (Date.now() - date.getTime()) / 1000;
+  if (age < 0) return date.toLocaleDateString();
+  if (age < 60) return 'now';
+  if (age < 3600) return Math.floor(age / 60) + ' min';
+  if (age < 86400) return Math.floor(age / 3600) + ' h';
+  if (age < 604800) return Math.floor(age / 86400) + ' d';
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(age > 31536000 ? { year: 'numeric' } : {}) });
+}
+function renderInfo() {
+  get('welcome').hidden = !!repo;
+  get('repo-name').textContent = repo ? repo.root.split('/').filter(Boolean).pop() + ' · ' + (repo.branch ?? 'detached HEAD') : 'No repository selected';
+  get('repo-name').title = repo?.root ?? '';
+  get('branch-status').textContent = repo ? (repo.branch ?? 'detached ' + short(repo.head ?? '')) + ' +' + repo.ahead + ' −' + repo.behind : 'No repository';
+  get('branch-status').title = repo?.upstream ? 'Upstream: ' + repo.upstream : 'No upstream';
+  get('changes-count').textContent = String(repo?.files.length ?? 0);
+  get('staged-count').textContent = stagedFiles().length + ' staged ' + (stagedFiles().length === 1 ? 'file' : 'files');
+  get('operation-note').textContent = repo?.operation ? 'Finish ' + repo.operation + ' in the terminal, then refresh.' : '';
+}
+function scopeOptions() {
+  const control = select('scope'); control.replaceChildren(option('', 'All branches'));
+  for (const kind of ['local', 'remote', 'tag']) {
+    const refs = page?.refs.filter(reference => reference.kind === kind) ?? [];
+    if (!refs.length) continue;
+    const group = document.createElement('optgroup'); group.label = kind === 'local' ? 'Local branches' : kind === 'remote' ? 'Remote branches' : 'Tags';
+    for (const ref of refs) group.append(option(ref.id, ref.name)); control.append(group);
+  }
+  control.value = scope ?? '';
+}
+function updateSelection() {
+  get('history-rows').querySelectorAll<HTMLTableRowElement>('tr').forEach(row => {
+    const active = row.dataset.oid === selected; row.classList.toggle('selected', active);
+    row.querySelector('button.subject')?.setAttribute('aria-pressed', String(active));
+  });
+  paintGraph(get('graph') as unknown as SVGSVGElement, layout, layout.rows.length * 28 + (layout.pending.length ? 10 : 0), 28, selected, page?.head ?? null);
+  updateControls();
+}
+function choose(oid: string, focus = false) {
+  selected = oid; updateSelection();
+  if (focus) get('history-rows').querySelector<HTMLButtonElement>('[data-oid="' + oid + '"] button.subject')?.focus({ preventScroll: true });
+}
+function renderGraph() {
+  const scroll = get('history').scrollTop;
+  layout = layoutHistory(page?.commits ?? []);
+  document.documentElement.style.setProperty('--graph-width', Math.max(132, layout.lanes * 18 + 28) + 'px');
+  const rows = get('history-rows'); rows.replaceChildren();
+  get('graph-scene').hidden = !page?.commits.length;
+  get('empty-history').hidden = !repo || !!page?.commits.length;
+  get('load-more').hidden = !page?.hasMore;
+  if (limit >= 10000 && page?.hasMore) button('load-more').textContent = '10,000 commits loaded; choose a narrower scope';
+  else button('load-more').textContent = 'Load more history';
+  for (const row of layout.rows) {
+    const commit = row.commit;
+    const tr = document.createElement('tr'); tr.dataset.oid = commit.oid;
+    const gutter = document.createElement('td');
+    const description = document.createElement('td'); description.className = 'description';
+    const content = document.createElement('div'); content.className = 'commit-content';
+    for (const reference of page?.refs.filter(ref => ref.target === commit.oid) ?? []) {
+      const ref = document.createElement('button'); ref.type = 'button'; ref.className = 'ref ' + reference.kind;
+      ref.textContent = (reference.isHead ? 'HEAD → ' : '') + reference.name;
+      ref.style.color = row.color; ref.title = reference.fullName;
+      ref.setAttribute('aria-label', reference.kind + ' ' + reference.name + ', select its tip');
+      ref.addEventListener('click', () => choose(commit.oid)); content.append(ref);
+    }
+    const subject = document.createElement('button'); subject.type = 'button'; subject.className = 'subject'; subject.textContent = commit.subject || '(no subject)';
+    subject.title = commit.subject; subject.setAttribute('aria-label', commit.subject + ', ' + commit.author + ', ' + short(commit.oid) + ', ' + commit.parents.length + ' parents');
+    subject.addEventListener('click', () => choose(commit.oid));
+    subject.addEventListener('dblclick', () => { choose(commit.oid); void openDetails(); });
+    subject.addEventListener('keydown', event => {
+      if (event.key === 'Enter') { event.preventDefault(); choose(commit.oid); void openDetails(); return; }
+      if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+      event.preventDefault(); const index = layout.rows.indexOf(row); const next = layout.rows[Math.max(0, Math.min(layout.rows.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))];
+      choose(next.commit.oid, true);
+      get('history-rows').querySelector('[data-oid="' + next.commit.oid + '"]')?.scrollIntoView({ block: 'nearest' });
+    });
+    if (page?.head === commit.oid && !page.refs.some(ref => ref.target === commit.oid && ref.isHead)) {
+      const head = document.createElement('span'); head.className = 'ref'; head.textContent = 'HEAD (detached)'; head.style.color = row.color; content.prepend(head);
+    }
+    content.append(subject); description.append(content);
+    const author = document.createElement('td'); author.className = 'author-cell'; author.textContent = commit.author; author.title = commit.author;
+    const date = document.createElement('td'); date.className = 'date-cell'; date.textContent = relative(commit.timestamp); date.title = new Date(commit.timestamp * 1000).toString();
+    const sha = document.createElement('td'); sha.className = 'sha-cell'; sha.textContent = commit.shortOid; sha.title = commit.oid;
+    tr.append(gutter, description, author, date, sha); rows.append(tr);
+  }
+  scopeOptions(); updateSelection(); get('history').scrollTop = scroll;
+}
+async function loadGraph(more = false) {
+  if (!repo) return;
+  const id = repo.id; const currentEpoch = epoch;
+  let result: GraphPage;
+  try { result = await api.graph(id, scope, limit, more ? page?.graphId ?? null : null); }
+  catch (error) {
+    if (!scope || !String(error).includes('Unknown history scope')) throw error;
+    scope = null; result = await api.graph(id, null, limit);
+  }
+  if (currentEpoch !== epoch || repo?.id !== id) return;
+  page = result;
+  if (!page.commits.some(commit => commit.oid === selected)) selected = page.commits.find(commit => commit.oid === page?.head)?.oid ?? page.commits[0]?.oid ?? null;
+  renderGraph();
+}
+async function refresh() {
+  if (!repo) return;
+  epoch++; repo = await api.status(repo.id); renderInfo(); renderFiles(); await loadGraph();
+  notify(page?.commits.length + ' commits loaded · refreshed ' + new Date().toLocaleTimeString());
+}
+async function chooseRepository() {
+  await run('Opening repository…', async () => {
+    const path = await open({ directory: true, multiple: false, title: 'Open a Git repository' });
+    if (typeof path !== 'string') { notify('Ready'); return; }
+    await openPath(path);
+  });
+}
+async function openPath(path: string) {
+  const next = await api.open(path); saveDraft();
+  for (const id of ['details', 'branches', 'remote-dialog']) if (dialog(id).open) dialog(id).close();
+  details = null; detailRequest++; workingRequest++;
+  repo = next; epoch++; scope = null; limit = 200; page = null; selected = null; workingFile = null;
+  checked.staged.clear(); checked.unstaged.clear(); input('branch-name').value = '';
+  save('lastRepository', repo.root); restoreDraft(); renderInfo(); renderFiles();
+  get('working-diff').replaceChildren(); get('working-path').textContent = 'Select a file to review its diff.';
+  get('error').hidden = true; await loadGraph(); notify('Opened ' + repo.root);
+}
+function previewInto(id: string, preview: Preview) {
+  const container = get(id); container.replaceChildren();
+  // shortcut: render 5,000 diff lines, add virtualization when larger previews are needed.
+  const lines = preview.text.split('\n', 5001);
+  for (const line of lines.slice(0, 5000)) {
+    const span = document.createElement('span'); span.className = 'diff-line' + (line.startsWith('+') ? ' added' : line.startsWith('-') ? ' removed' : line.startsWith('@@') ? ' hunk' : '');
+    span.textContent = line || ' '; container.append(span);
+  }
+  if (preview.truncated || lines.length > 5000) { const note = document.createElement('span'); note.className = 'diff-line note'; note.textContent = 'Preview truncated. Inspect the complete diff in Git for the remaining content.'; container.append(note); }
+  if (!preview.text) container.textContent = 'No differences to display.';
+}
+async function openDetails() {
+  if (!repo || !selected || busy) return;
+  const id = repo.id; const oid = selected; const request = ++detailRequest;
+  await run('Reading commit…', async () => {
+    details = await api.details(id, oid);
+    if (repo?.id !== id || request !== detailRequest) return;
+    renderDetails();
+    if (!dialog('details').open) dialog('details').showModal();
+    await loadDetailDiff(); notify('Inspecting ' + short(oid));
+  });
+}
+function renderDetails() {
+  if (!details) return;
+  get('detail-title').textContent = details.message.split('\n')[0] || '(no subject)';
+  get('detail-author').textContent = details.author + ' <' + details.email + '>';
+  get('detail-date').textContent = new Date(details.timestamp * 1000).toLocaleString(); input('detail-sha').value = details.oid;
+  get('detail-message').textContent = details.message.split('\n').slice(1).join('\n').trim();
+  const parents = get('detail-parents'); parents.replaceChildren();
+  const label = document.createElement('span'); label.className = 'muted'; label.textContent = details.shallow ? 'Shallow history boundary' : details.parents.length ? 'Parents' : 'Root commit'; parents.append(label);
+  for (const parent of details.parents) {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = short(parent);
+    b.addEventListener('click', () => { if (busy || !repo) return; void run('Reading parent…', async () => { details = await api.details(repo!.id, parent); if (page?.commits.some(c => c.oid === parent)) choose(parent); renderDetails(); await loadDetailDiff(); notify('Inspecting ' + short(parent)); }); });
+    parents.append(b);
+  }
+  const comparisons = select('detail-parent'); comparisons.replaceChildren();
+  if (!details.parents.length) comparisons.append(option('', details.shallow ? 'Parent unavailable' : 'Empty tree'));
+  else details.parents.forEach((parent, index) => comparisons.append(option(parent, 'Parent ' + (index + 1) + ' · ' + short(parent))));
+  comparisons.value = details.parent ?? '';
+  comparisons.disabled = details.parents.length < 2;
+  const files = select('detail-file'); files.replaceChildren(option('', 'All changed files (' + details.files.length + ')'));
+  details.files.forEach(file => files.append(option(file.id, file.status + ' · ' + (file.oldPath ? file.oldPath + ' → ' : '') + file.path)));
+}
+async function loadDetailDiff() {
+  if (!repo || !details) return;
+  const id = repo.id; const oid = details.oid; const request = detailRequest;
+  const preview = await api.commitDiff(id, oid, details.parent, select('detail-file').value || null);
+  if (repo?.id !== id || details?.oid !== oid || request !== detailRequest) return;
+  previewInto('detail-diff', preview);
+}
+function toggleChanges() {
+  get('changes').hidden = !get('changes').hidden;
+  button('changes-button').setAttribute('aria-pressed', String(!get('changes').hidden));
+  if (!get('changes').hidden) { renderFiles(); input('summary').focus(); }
+}
+function renderFiles() {
+  const list = get('file-list'); list.replaceChildren();
+  const groups: [string, FileInfo[], boolean | null][] = [
+    ['Staged', stagedFiles(), true],
+    ['Unstaged / untracked', repo?.files.filter(file => !file.conflicted && (file.worktree !== '.' || file.untracked)) ?? [], false],
+    ['Conflicts', repo?.files.filter(file => file.conflicted) ?? [], null],
+  ];
+  for (const [set, files] of [[checked.staged, groups[0][1]], [checked.unstaged, groups[1][1]]] as const) {
+    const available = new Set(files.map(file => file.id));
+    for (const id of set) if (!available.has(id)) set.delete(id);
+  }
+  for (const [name, files, staged] of groups) {
+    if (!files.length && staged === null) continue;
+    const heading = document.createElement('div'); heading.className = 'file-group-title';
+    const label = document.createElement('span'); label.textContent = name + ' · ' + files.length; heading.append(label);
+    if (staged !== null) {
+      const action = document.createElement('button'); action.type = 'button'; action.dataset.stageGroup = staged ? 'staged' : 'unstaged';
+      const selection = staged ? checked.staged : checked.unstaged;
+      action.textContent = (staged ? 'Unstage' : 'Stage') + (selection.size ? ' selected' : ' all');
+      action.disabled = busy || !normal() || !files.some(file => !file.submodule);
+      action.setAttribute('aria-label', (staged ? 'Unstage' : 'Stage') + ' selected files, or all files in this group');
+      action.addEventListener('click', () => {
+        const checkedIds = staged ? checked.staged : checked.unstaged;
+        const ids = files.filter(file => !file.submodule && (!checkedIds.size || checkedIds.has(file.id))).map(file => file.id);
+        if (repo && ids.length) void mutate(staged ? 'Unstaging files…' : 'Staging files…', () => api.stage(repo!.id, ids, staged, repo!.token));
+      }); heading.append(action);
+    }
+    list.append(heading);
+    if (!files.length) { const empty = document.createElement('div'); empty.className = 'muted'; empty.textContent = 'None'; empty.style.padding = '4px'; list.append(empty); }
+    for (const file of files) {
+      const row = document.createElement('div'); row.className = 'file-row' + (workingFile?.id === file.id && workingFile.staged === !!staged ? ' selected' : '');
+      if (staged !== null) {
+        const check = document.createElement('input'); check.type = 'checkbox'; check.disabled = file.submodule || busy || !normal();
+        const set = staged ? checked.staged : checked.unstaged; check.checked = set.has(file.id);
+        check.setAttribute('aria-label', 'Select ' + file.path + ' in ' + name);
+        check.addEventListener('change', () => { if (check.checked) set.add(file.id); else set.delete(file.id); const action = list.querySelector<HTMLButtonElement>('[data-stage-group="' + (staged ? 'staged' : 'unstaged') + '"]'); if (action) action.textContent = (staged ? 'Unstage' : 'Stage') + (set.size ? ' selected' : ' all'); }); row.append(check);
+      }
+      const kind = document.createElement('span'); kind.className = 'file-kind'; kind.textContent = file.submodule ? 'S' : file.conflicted ? 'U' : file.untracked ? '?' : staged ? file.index : file.worktree; row.append(kind);
+      const nameButton = document.createElement('button'); nameButton.type = 'button'; nameButton.textContent = (file.oldPath ? file.oldPath + ' → ' : '') + file.path; nameButton.title = nameButton.textContent;
+      nameButton.addEventListener('click', () => { void showWorkingFile(file, !!staged); }); row.append(nameButton); list.append(row);
+    }
+  }
+  renderInfo();
+}
+async function showWorkingFile(file: FileInfo, staged: boolean) {
+  if (!repo || busy) return;
+  const id = repo.id; const request = ++workingRequest;
+  workingFile = { id: file.id, staged }; renderFiles();
+  get('working-path').textContent = (staged ? 'Staged · ' : 'Working tree · ') + file.path;
+  await run('Reading diff…', async () => {
+    const preview = await api.workingDiff(id, file.id, staged);
+    if (repo?.id === id && request === workingRequest) previewInto('working-diff', preview);
+    notify('Reviewed ' + file.path);
+  });
+}
+async function mutate(label: string, action: () => Promise<RepoInfo>, committed = false) {
+  await run(label, async () => {
+    const info = await action(); repo = info; epoch++;
+    checked.staged.clear(); checked.unstaged.clear(); workingFile = null;
+    if (committed) {
+      input('summary').value = ''; get<HTMLTextAreaElement>('body').value = ''; removeStored(draftKey());
+      selected = repo.head; scope = null; limit = 200;
+    }
+    get('working-diff').replaceChildren(); get('working-path').textContent = 'Select a file to review its diff.';
+    renderInfo(); renderFiles(); await loadGraph(); get('error').hidden = true; notify('Done · repository refreshed');
+  }, true);
+}
+async function commitChanges() {
+  if (!repo || busy || button('commit-button').disabled) return;
+  const message = input('summary').value.trim() + (get<HTMLTextAreaElement>('body').value.trim() ? '\n\n' + get<HTMLTextAreaElement>('body').value.trim() : '');
+  let detachedOk = false;
+  if (repo.detached) detachedOk = await confirm('HEAD is detached. This commit will not belong to a branch. Continue?', { title: 'Commit on detached HEAD', kind: 'warning' });
+  if (repo.detached && !detachedOk) return;
+  saveDraft(); await mutate('Creating commit…', () => api.commit(repo!.id, message, repo!.token, detachedOk), true);
+}
+function openBranches() {
+  if (!repo || busy) return;
+  const branches = select('branch-select'); branches.replaceChildren();
+  for (const ref of page?.refs.filter(ref => ref.kind === 'local') ?? []) branches.append(option(ref.id, (ref.isHead ? '✓ ' : '') + ref.name));
+  get('branch-note').textContent = repo.head ? 'Creating a branch adds a name at the chosen commit. Switching keeps Git’s normal protection for working changes.' : 'Create the first commit before creating another branch.';
+  select('branch-start').options[1].disabled = !selected;
+  updateControls(); dialog('branches').showModal();
+}
+function chooseRemote(action: 'fetch' | 'push') {
+  if (!repo || busy) return;
+  if (!repo.remotes.length) { report('No remote is configured. Add a remote with Git, then refresh.'); return; }
+  remoteAction = action;
+  const remotes = select('remote-select'); remotes.replaceChildren();
+  repo.remotes.forEach(remote => remotes.append(option(remote.id, remote.name)));
+  remotes.value = repo.remotes.find(remote => remote.name === 'origin')?.id ?? repo.remotes[0].id;
+  get('remote-title').textContent = action === 'fetch' ? 'Fetch remote' : 'Publish branch';
+  get('remote-note').textContent = action === 'fetch' ? 'Fetch updates remote-tracking history. Your checked-out branch stays in place.' : 'Publish ' + repo.branch + ' and set its upstream on this remote.';
+  button('remote-submit').textContent = action === 'fetch' ? 'Fetch' : 'Publish';
+  remoteUrl(); updateControls(); dialog('remote-dialog').showModal();
+}
+function remoteUrl() { get('remote-url').textContent = repo?.remotes.find(remote => remote.id === select('remote-select').value)?.url ?? ''; }
+
+button('open-repo').onclick = () => { void chooseRepository(); };
+button('welcome-open').onclick = () => { void chooseRepository(); };
+button('refresh').onclick = () => { void run('Refreshing…', refresh); };
+button('fetch').onclick = () => chooseRemote('fetch');
+button('pull').onclick = () => { if (repo) void mutate('Pulling fast-forward update…', () => api.pull(repo!.id, repo!.token)); };
+button('push').onclick = () => { if (!repo) return; if (!repo.upstream) chooseRemote('push'); else void mutate('Pushing current branch…', () => api.push(repo!.id, null, repo!.token)); };
+button('details-button').onclick = () => { void openDetails(); };
+button('branch-actions').onclick = openBranches;
+button('changes-button').onclick = toggleChanges;
+button('close-changes').onclick = toggleChanges;
+button('dismiss-error').onclick = () => { get('error').hidden = true; };
+button('load-more').onclick = () => { if (!page || busy) return; limit += 200; void run('Loading history…', async () => { await loadGraph(true); notify(page!.commits.length + ' commits loaded'); }); };
+select('scope').onchange = () => { scope = select('scope').value || null; limit = 200; get('history').scrollTop = 0; void run('Loading branch history…', async () => { await loadGraph(); notify('History scope updated'); }); };
+select('detail-file').onchange = () => { void run('Reading commit diff…', loadDetailDiff); };
+select('detail-parent').onchange = () => { if (!repo || !details) return; void run('Comparing merge parent…', async () => { details = await api.details(repo!.id, details!.oid, select('detail-parent').value || null); renderDetails(); await loadDetailDiff(); notify('Comparison updated'); }); };
+input('detail-sha').onclick = () => input('detail-sha').select();
+input('summary').oninput = () => { saveDraft(); updateControls(); };
+get<HTMLTextAreaElement>('body').oninput = saveDraft;
+get<HTMLFormElement>('commit-form').onsubmit = event => { event.preventDefault(); void commitChanges(); };
+input('branch-name').oninput = updateControls;
+select('branch-select').onchange = updateControls;
+button('switch-branch').onclick = () => { if (!repo) return; const id = select('branch-select').value; dialog('branches').close(); scope = null; void mutate('Switching branch…', () => api.switchBranch(repo!.id, id, repo!.token)); };
+button('create-branch').onclick = () => { if (!repo) return; const name = input('branch-name').value.trim(); const oid = select('branch-start').value === 'selected' ? selected : null; dialog('branches').close(); void mutate('Creating branch…', () => api.createBranch(repo!.id, name, oid, repo!.token)); };
+select('remote-select').onchange = remoteUrl;
+get<HTMLFormElement>('remote-form').onsubmit = event => { event.preventDefault(); if (!repo || busy) return; const remoteId = select('remote-select').value; dialog('remote-dialog').close(); if (remoteAction === 'fetch') void mutate('Fetching remote…', () => api.fetch(repo!.id, remoteId)); else void mutate('Publishing current branch…', () => api.push(repo!.id, remoteId, repo!.token)); };
+dialog('details').addEventListener('close', () => { detailRequest++; button('details-button').focus(); });
+window.addEventListener('keydown', event => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') { event.preventDefault(); if (!busy) void chooseRepository(); }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r') { event.preventDefault(); if (repo && !busy) void run('Refreshing…', refresh); }
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && get('commit-form').contains(document.activeElement)) { event.preventDefault(); void commitChanges(); }
+});
+window.addEventListener('focus', () => { if (repo && !busy && !document.querySelector('dialog[open]')) void run('Refreshing…', refresh); });
+updateControls();
+if (isTauri()) {
+  void getCurrentWindow().onCloseRequested(async event => {
+    if (writing) { event.preventDefault(); await nativeMessage('A Git operation is still running. Wait for it to finish before closing GitGUI.', { title: 'Git operation in progress', kind: 'info' }); }
+  }).catch(report);
+  void run('Starting…', async () => {
+    const path = await api.startup() ?? stored('lastRepository');
+    if (path) await openPath(path); else notify('Open a repository to begin.');
+  });
+} else {
+  get('welcome').querySelector('p')!.textContent = 'Launch the GitGUI desktop app to work with local repositories.';
+  button('welcome-open').disabled = true; button('open-repo').disabled = true; notify('Desktop runtime required');
+}

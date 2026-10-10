@@ -1,0 +1,3 @@
+[advisories]
+# Fixed in vendor/glib; the scanner uses the original compatible version number.
+ignore = ["RUSTSEC-2024-0429"]

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GitGUI Busy history</title>
+<script src="./vendor/react.js"></script>
+<script src="./vendor/react-dom.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#141518}*{scrollbar-width:none}*::-webkit-scrollbar{display:none}
+.app{font-family:'Geist',system-ui,sans-serif;font-size:13px;color:#d9dade}
+.mono{font-family:'Geist Mono',ui-monospace,monospace}
+.m{color:#9195a1}
+.tb{font:inherit;color:#b4b7c0;background:none;border:0;height:28px;padding:0 10px;border-radius:5px;cursor:pointer}
+.tb:hover{background:#23252b;color:#fff}
+.r{display:flex;align-items:center;height:28px;padding:0 16px 0 148px;gap:12px}
+.r:hover{background:#1b1d22}
+.r.sel{background:#232a3b;box-shadow:inset 2px 0 0 {{accent}}}
+.t{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag{font-family:'Geist Mono',monospace;font-size:11px;border:1px solid;border-radius:3px;padding:0 5px;margin-right:6px;white-space:nowrap}
+.au{width:84px;color:#9195a1}.dt{width:84px;color:#9195a1}.sh{width:60px;color:#9195a1;font-size:12px}
+.ch{font-size:12px;color:#b4b7c0;border:1px solid #33363d;border-radius:4px;padding:2px 8px;white-space:nowrap}
+</style>
+</helmet>
+<div class="app" style="width:100%;height:100vh;display:grid;grid-template-rows:44px 36px 24px minmax(0,1fr) 92px 24px;background:#141518;overflow:hidden">
+
+<div style="display:flex;align-items:center;gap:4px;padding:0 12px;border-bottom:1px solid #26282e;background:#18191d">
+<div style="font-weight:600;padding:0 10px 0 4px">gitgui</div>
+<button class="tb">Fetch</button><button class="tb">Pull</button><button class="tb">Push</button>
+<div style="flex:1"></div><span class="m" style="font-size:12px;padding-right:8px">gitgui-app · busy history</span>
+</div>
+
+<div style="display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid #26282e;background:#16171b;font-size:12px">
+<span class="m">Scope</span><span class="ch">All branches</span>
+<span class="m" style="margin-left:12px">Focus</span><span class="ch" style="color:#7aa2f7;border-color:#3b4d78">feat/graph ×</span>
+<span class="m" style="margin-left:12px">Dimmed commits are not ancestors of the focused branch</span>
+<span class="mono m" style="margin-left:auto">6 lanes · 18 rows</span>
+</div>
+
+<div style="display:flex;gap:12px;align-items:center;padding:0 16px 0 148px;font-size:11px;color:#9195a1;border-bottom:1px solid #1f2126"><div style="flex:1">Description</div><div style="width:84px">Author</div><div style="width:84px">Date</div><div style="width:60px">Commit</div></div>
+
+<div style="position:relative;min-height:0;overflow:hidden">
+<svg width="120" height="504" viewBox="0 0 120 504" style="position:absolute;left:14px;top:0" role="img" aria-label="Commit graph with six lanes, a criss-cross merge and a collapsed run"><path d="M30 14V42" stroke="#8bc58a" stroke-width="1.75" fill="none" stroke-dasharray="2 3"></path><path d="M30 42V98" stroke="#8bc58a" stroke-width="1.75" fill="none"></path><path d="M12 70V154" stroke="#7aa2f7" stroke-width="1.75" fill="none" opacity=".3"></path><path d="M30 98V182" stroke="#8bc58a" stroke-width="1.75" fill="none"></path><path d="M84 126V322" stroke="#5ec4c0" stroke-width="1.75" fill="none" opacity=".3"></path><path d="M12 154V238" stroke="#7aa2f7" stroke-width="1.75" fill="none" opacity=".3"></path><path d="M12 154C12 182 66 182 66 210" stroke="#d98fb0" stroke-width="1.75" fill="none" opacity=".3"></path><path d="M30 182V266" stroke="#8bc58a" stroke-width="1.75" fill="none"></path><path d="M30 182C30 210 12 210 12 238" stroke="#7aa2f7" stroke-width="1.75" fill="none"></path><path d="M66 210V350" stroke="#d98fb0" stroke-width="1.75" fill="none" opacity=".3"></path><path d="M12 238V294" stroke="#7aa2f7" stroke-width="1.75" fill="none"></path><path d="M30 266V378" stroke="#8bc58a" stroke-width="1.75" fill="none"></path><path d="M12 294V406" stroke="#7aa2f7" stroke-width="1.75" fill="none"></path><path d="M84 322V378C84 392 12 392 12 406" stroke="#5ec4c0" stroke-width="1.75" fill="none" opacity=".3"></path><path d="M66 350C66 378 12 378 12 406" stroke="#d98fb0" stroke-width="1.75" fill="none" opacity=".3"></path><path d="M30 378C30 392 12 392 12 406" stroke="#8bc58a" stroke-width="1.75" fill="none"></path><path d="M12 406V462" stroke="#7aa2f7" stroke-width="1.75" fill="none"></path><path d="M102 434C102 462 12 462 12 490" stroke="#a98be0" stroke-width="1.75" fill="none" opacity=".3"></path><path d="M12 462V490" stroke="#7aa2f7" stroke-width="1.75" fill="none"></path><rect x="26" y="10" width="8" height="8" fill="#141518" stroke="#8bc58a" stroke-width="1.5" stroke-dasharray="2 2"></rect><circle cx="30" cy="42" r="8" fill="none" stroke="#8bc58a" stroke-opacity=".35"></circle><circle cx="30" cy="42" r="4" fill="#8bc58a"></circle><circle cx="12" cy="70" r="4" fill="#7aa2f7" opacity=".3"></circle><circle cx="30" cy="98" r="4" fill="#8bc58a"></circle><circle cx="84" cy="126" r="4" fill="#5ec4c0" opacity=".3"></circle><circle cx="12" cy="154" r="5.5" fill="#141518" stroke="#7aa2f7" stroke-width="2" opacity=".3"></circle><circle cx="30" cy="182" r="5.5" fill="#141518" stroke="#8bc58a" stroke-width="2"></circle><circle cx="66" cy="210" r="4" fill="#d98fb0" opacity=".3"></circle><circle cx="12" cy="238" r="4" fill="#7aa2f7"></circle><circle cx="30" cy="266" r="4" fill="#8bc58a"></circle><circle cx="12" cy="294" r="5.5" fill="#141518" stroke="#7aa2f7" stroke-width="1.5" stroke-dasharray="2 2"></circle><circle cx="84" cy="322" r="4" fill="#5ec4c0" opacity=".3"></circle><circle cx="66" cy="350" r="4" fill="#d98fb0" opacity=".3"></circle><circle cx="30" cy="378" r="4" fill="#8bc58a"></circle><circle cx="12" cy="406" r="4" fill="#7aa2f7"></circle><circle cx="102" cy="434" r="4" fill="#a98be0" opacity=".3"></circle><circle cx="12" cy="462" r="4" fill="#7aa2f7"></circle><circle cx="12" cy="490" r="4" fill="#141518" stroke="#7aa2f7" stroke-width="1.75"></circle></svg>
+<div class="r"><div class="t m" style="font-style:italic">Working tree · 3 files changed</div><div class="au"></div><div class="dt"></div><div class="sh mono"></div></div>
+<div class="r"><div class="t"><span class="tag" style="color:#8bc58a;border-color:#8bc58a66">HEAD → feat/graph</span>Draw merge parents as ring nodes</div><div class="au">ines</div><div class="dt">12 min</div><div class="sh mono">a41c9e0</div></div>
+<div class="r" style="opacity:.38"><div class="t"><span class="tag" style="color:#7aa2f7;border-color:#7aa2f766">main</span><span class="tag" style="color:#b4b7c0;border-color:#44474f">origin/main</span><span class="tag" style="color:#9195a1;border-color:#44474f">+1</span>Release v0.3.1</div><div class="au">marcus</div><div class="dt">40 min</div><div class="sh mono">5d21b88</div></div>
+<div class="r"><div class="t">Cache lane layout per scope</div><div class="au">marcus</div><div class="dt">1 h</div><div class="sh mono">7be20d4</div></div>
+<div class="r" style="opacity:.38"><div class="t"><span class="tag" style="color:#5ec4c0;border-color:#5ec4c066">feat/deps</span>Bump tauri to 2.1</div><div class="au">dev</div><div class="dt">2 h</div><div class="sh mono">c77e1a2</div></div>
+<div class="r" style="opacity:.38"><div class="t">Merge release/0.3 into main</div><div class="au">marcus</div><div class="dt">3 h</div><div class="sh mono">e19a0c3</div></div>
+<div class="r sel"><div class="t" style="color:#fff">Merge main into feat/graph</div><div class="au">ines</div><div class="dt">3 h</div><div class="sh mono">4aa7b90</div></div>
+<div class="r" style="opacity:.38"><div class="t"><span class="tag" style="color:#d98fb0;border-color:#d98fb066">release/0.3</span>Bump version to 0.3.1</div><div class="au">marcus</div><div class="dt">5 h</div><div class="sh mono">f03b9d1</div></div>
+<div class="r"><div class="t">Fix packed-refs parsing</div><div class="au">dev</div><div class="dt">Yesterday</div><div class="sh mono">9ae104c</div></div>
+<div class="r"><div class="t">Add commit details panel</div><div class="au">ines</div><div class="dt">Yesterday</div><div class="sh mono">621fc0b</div></div>
+<div class="r"><div class="t m" style="font-style:italic">11 commits hidden · Sep 2 – Sep 9 <span style="color:#7aa2f7;font-style:normal">Expand</span></div><div class="au"></div><div class="dt"></div><div class="sh mono"></div></div>
+<div class="r" style="opacity:.38"><div class="t">Update lockfile</div><div class="au">dev</div><div class="dt">2 d</div><div class="sh mono">d81f2e6</div></div>
+<div class="r" style="opacity:.38"><div class="t"><span class="tag" style="color:#b4b7c0;border-color:#44474f">origin/release/0.3</span>Backport credential fix</div><div class="au">dev</div><div class="dt">3 d</div><div class="sh mono">b5c3a70</div></div>
+<div class="r"><div class="t">Start graph rewrite</div><div class="au">ines</div><div class="dt">3 d</div><div class="sh mono">2a9ee41</div></div>
+<div class="r"><div class="t"><span class="tag" style="color:#b4b7c0;border-color:#44474f">v0.3.0</span>Parse refs from packed-refs</div><div class="au">marcus</div><div class="dt">4 d</div><div class="sh mono">e90f3a7</div></div>
+<div class="r" style="opacity:.38"><div class="t"><span class="tag" style="color:#a98be0;border-color:#a98be066">feat/webgl</span>Try WebGL lane renderer</div><div class="au">dev</div><div class="dt">5 d</div><div class="sh mono">71c0d5e</div></div>
+<div class="r"><div class="t">Wire repository watcher</div><div class="au">marcus</div><div class="dt">1 w</div><div class="sh mono">38d1b6c</div></div>
+<div class="r"><div class="t">Initial scaffold</div><div class="au">ines</div><div class="dt">1 w</div><div class="sh mono">0f5aa21</div></div>
+</div>
+
+<div style="border-top:1px solid #26282e;background:#16171b;padding:12px 16px;display:grid;grid-template-columns:1fr auto;gap:4px 24px;min-height:0;overflow:hidden">
+<div style="font-size:14px;font-weight:600;color:#fff">Merge main into feat/graph</div>
+<div class="mono m" style="font-size:12px;text-align:right">4aa7b90</div>
+<div class="m" style="font-size:12px">ines · 3 hours ago · merge of 2 parents</div>
+<div class="mono" style="font-size:12px;text-align:right"><span class="m">parents</span> <span style="color:#8bc58a">621fc0b</span> <span style="color:#7aa2f7">9ae104c</span> <span class="m" style="margin-left:12px">child</span> <span style="color:#8bc58a">7be20d4</span></div>
+<div class="m" style="font-size:12px;grid-column:1/3">Long edges stay out of the graph: use the parent and child jumps, or [ and ], to follow them.</div>
+</div>
+
+<div class="mono" style="display:flex;align-items:center;gap:20px;padding:0 12px;border-top:1px solid #26282e;background:#18191d;font-size:11px;color:#9195a1">
+<span style="color:#b4b7c0">feat/graph +2 −0</span><span>f focus branch</span><span>↑↓ move</span><span>[ ] parents</span><span>⏎ expand run</span>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#7aa2f7"},"$preview":{"width":1366,"height":768}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#7aa2f7' };
+}
+}
+</script>
+</body>
+</html>

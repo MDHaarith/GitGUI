@@ -3,195 +3,260 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GitGUI interface concept</title>
+<title>GitGUI branch graph concept</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; }
-  body { margin: 0; background: transparent; }
-  #gitgui-concept {
-    color-scheme: light dark;
-    --surface: light-dark(#ffffff, #181d25);
-    --soft: light-dark(#f3f5f8, #202733);
-    --ink: light-dark(#1f2937, #e6ecf5);
-    --secondary: light-dark(#566376, #b0bdce);
-    --edge: light-dark(#d4dce7, #3d495b);
-    --selected: light-dark(#e7efff, #263c60);
-    --brand: light-dark(#2855bd, #aecaff);
-    --button: light-dark(#2855bd, #aac6ff);
-    --button-ink: light-dark(#ffffff, #122448);
-    --added: light-dark(#e9f5ec, #1b3929);
-    --deleted: light-dark(#faeeee, #48272c);
-    font: 14px/1.5 system-ui, sans-serif; color: var(--ink);
-  }
-  #gitgui-concept .caption { color: var(--secondary); margin: 0 0 12px; }
-  #gitgui-concept .window { background: var(--surface); border: 1px solid var(--edge); border-radius: 12px; padding: 16px; }
-  #gitgui-concept .toolbar, #gitgui-concept .actions, #gitgui-concept .panel-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-  #gitgui-concept .toolbar { justify-content: space-between; gap: 12px; }
-  #gitgui-concept .brand { font-size: 17px; font-weight: 600; }
-  #gitgui-concept .repo { color: var(--secondary); margin-top: 2px; }
-  #gitgui-concept button { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--edge); border-radius: 6px; padding: 6px 10px; }
-  #gitgui-concept button:disabled { opacity: .55; }
-  #gitgui-concept button[aria-pressed="true"] { background: var(--selected); color: var(--brand); }
-  #gitgui-concept .navigation { display: flex; gap: 8px; margin: 16px 0; }
-  #gitgui-concept .layout { display: grid; grid-template-columns: minmax(185px, .85fr) minmax(0, 1.5fr); gap: 16px; }
-  #gitgui-concept .files { background: var(--soft); border-radius: 8px; padding: 16px; }
-  #gitgui-concept h2 { font-size: 14px; font-weight: 600; margin: 0; }
-  #gitgui-concept .count, #gitgui-concept .hint { color: var(--secondary); }
-  #gitgui-concept .panel-heading { justify-content: space-between; margin-bottom: 8px; }
-  #gitgui-concept .file-group + .file-group { margin-top: 24px; }
-  #gitgui-concept .file { margin-top: 8px; }
-  #gitgui-concept .file-select { width: 100%; display: block; text-align: left; overflow-wrap: anywhere; }
-  #gitgui-concept .file-action { margin-top: 4px; font-size: 12px; padding: 4px 8px; }
-  #gitgui-concept .empty { margin: 8px 0; color: var(--secondary); font-size: 12px; }
-  #gitgui-concept .file-type { font-size: 12px; color: var(--secondary); display: block; }
-  #gitgui-concept .detail { min-width: 0; }
-  #gitgui-concept .diff-title { overflow-wrap: anywhere; }
-  #gitgui-concept .diff { background: var(--soft); border-radius: 8px; padding: 16px; font: 12px/1.8 ui-monospace, monospace; margin: 8px 0 18px; }
-  #gitgui-concept .line { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
-  #gitgui-concept .line.add { background: var(--added); }
-  #gitgui-concept .line.remove { background: var(--deleted); }
-  #gitgui-concept .number { color: var(--secondary); user-select: none; }
-  #gitgui-concept label { display: block; margin: 10px 0 4px; font-weight: 500; }
-  #gitgui-concept input, #gitgui-concept textarea { width: 100%; padding: 8px 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--edge); border-radius: 6px; font: inherit; }
-  #gitgui-concept textarea { resize: vertical; min-height: 64px; }
-  #gitgui-concept .commit-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; justify-content: space-between; margin-top: 12px; }
-  #gitgui-concept .primary { background: var(--button); color: var(--button-ink); border-color: var(--button); }
-  #gitgui-concept .status { margin: 16px 0 0; color: var(--secondary); min-height: 21px; }
-  #gitgui-concept .history-list { padding-left: 20px; margin: 0; }
-  #gitgui-concept .history-list li { padding: 10px 0; }
-  #gitgui-concept .meta { display: block; color: var(--secondary); font-size: 12px; }
-  #gitgui-concept [hidden] { display: none !important; }
-  @media (max-width: 520px) { #gitgui-concept .layout { grid-template-columns: minmax(0, 1fr); } }
-  @media (pointer: coarse) { #gitgui-concept button { min-height: 44px; } #gitgui-concept input, #gitgui-concept textarea { font-size: 16px; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: transparent; }
+#gitgui-graph {
+  color-scheme: dark;
+  --surface: #141518;
+  --soft: #18191d;
+  --scope-surface: #16171b;
+  --ink: #d9dade;
+  --muted-ink: #9195a1;
+  --edge: #26282e;
+  --selected: #232a3b;
+  --blue: #7aa2f7;
+  --green: #8bc58a;
+  --pink: #d98fb0;
+  --cyan: #5ec4c0;
+  --purple: #a98be0;
+  --orange: #d6b57d;
+  --accent: #7aa2f7;
+  font: 13px/1.4 'Geist', system-ui, sans-serif;
+  color: var(--ink);
+}
+#gitgui-graph .caption { color: var(--muted-ink); margin: 0 0 8px; font-size: 12px; }
+#gitgui-graph .window { padding: 16px; background: var(--surface); border: 1px solid var(--edge); border-radius: 4px; }
+#gitgui-graph .topbar, #gitgui-graph .tools, #gitgui-graph .scope-row, #gitgui-graph .detail-meta, #gitgui-graph .parents { display: flex; align-items: center; gap: 8px; }
+#gitgui-graph .topbar { height: 44px; gap: 4px; margin: -16px -16px 0; padding: 0 12px; border-bottom: 1px solid var(--edge); background: var(--soft); }
+#gitgui-graph .brand { font-weight: 600; padding: 0 10px 0 4px; }
+#gitgui-graph .repo { margin-left: auto; font-size: 12px; color: var(--muted-ink); padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#gitgui-graph .muted { color: var(--muted-ink); }
+#gitgui-graph button, #gitgui-graph select { font: inherit; color: #b4b7c0; background: none; border: 0; height: 28px; padding: 0 10px; border-radius: 5px; }
+#gitgui-graph button:hover:not(:disabled) { background: #23252b; color: #fff; }
+#gitgui-graph button:disabled { color: var(--muted-ink); }
+#gitgui-graph :is(button, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#gitgui-graph .sync { gap: 0; }
+#gitgui-graph .scope-row { min-height: 36px; margin: 0 -16px; padding: 0 16px; border-bottom: 1px solid var(--edge); background: var(--scope-surface); justify-content: space-between; font-size: 12px; }
+#gitgui-graph .scope-controls { display: flex; align-items: center; gap: 8px; }
+#gitgui-graph .scope-controls label { color: var(--muted-ink); }
+#gitgui-graph #scope { font-size: 12px; border: 1px solid #33363d; border-radius: 4px; height: 24px; padding: 0 6px; }
+#gitgui-graph .changes-button { border: 1px solid #33363d; border-radius: 4px; height: 24px; padding: 0 8px; }
+#gitgui-graph .changes-count { font-family: 'Geist Mono', ui-monospace, monospace; margin-left: 4px; }
+#gitgui-graph .scene { position: relative; margin: 0 -16px; }
+#gitgui-graph table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+#gitgui-graph col.graph { width: 132px; }
+#gitgui-graph col.author, #gitgui-graph col.date { width: 96px; }
+#gitgui-graph col.sha { width: 76px; }
+#gitgui-graph th { height: 24px; padding: 0 12px 0 0; border-bottom: 1px solid #1f2126; color: var(--muted-ink); font-size: 11px; font-weight: 400; text-align: left; }
+#gitgui-graph th.description-heading { padding-left: 16px; }
+#gitgui-graph td { height: 28px; padding: 0; vertical-align: middle; }
+#gitgui-graph .commit-row:hover { background: #1b1d22; }
+#gitgui-graph .commit-row.selected { background: var(--selected); box-shadow: inset 2px 0 0 var(--accent); }
+#gitgui-graph .commit-row.selected .commit-button { color: #fff; }
+#gitgui-graph .message-cell { padding: 0 12px 0 16px; }
+#gitgui-graph .commit-content { display: flex; align-items: center; min-width: 0; height: 28px; }
+#gitgui-graph .commit-button { flex: 1; min-width: 0; height: 28px; padding: 0; border-radius: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+#gitgui-graph .commit-button:hover:not(:disabled) { background: transparent; }
+#gitgui-graph .author-cell, #gitgui-graph .date-cell { color: var(--muted-ink); padding-right: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#gitgui-graph .sha-cell { color: var(--muted-ink); padding-right: 16px; font: 12px 'Geist Mono', ui-monospace, monospace; white-space: nowrap; }
+#gitgui-graph .ref-list { display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; margin-right: 6px; }
+#gitgui-graph .ref { height: 18px; padding: 0 5px; font: 11px 'Geist Mono', ui-monospace, monospace; border: 1px solid color-mix(in srgb, currentColor 40%, transparent); border-radius: 3px; white-space: nowrap; }
+#gitgui-graph .ref.remote { color: #b4b7c0 !important; border-color: #44474f; }
+#gitgui-graph .ref.tag { color: #b4b7c0 !important; border-color: #44474f; }
+#gitgui-graph .graph-layer { position: absolute; top: 0; pointer-events: none; overflow: visible; }
+#gitgui-graph .inspector { width: min(520px, calc(100% - 32px)); max-height: 480px; overflow: auto; padding: 16px; background: var(--scope-surface); color: var(--ink); border: 1px solid #33363d; border-radius: 4px; }
+#gitgui-graph .inspector::backdrop { background: rgb(0 0 0 / .45); }
+#gitgui-graph .detail-title { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+#gitgui-graph h2 { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: #fff; overflow-wrap: anywhere; }
+#gitgui-graph .detail-meta { color: var(--muted-ink); font-size: 12px; flex-wrap: wrap; }
+#gitgui-graph code { font-family: 'Geist Mono', ui-monospace, monospace; overflow-wrap: anywhere; }
+#gitgui-graph .parents { margin-top: 10px; flex-wrap: wrap; }
+#gitgui-graph .parents button { height: 24px; padding: 0 6px; font: 12px 'Geist Mono', ui-monospace, monospace; color: var(--green); }
+#gitgui-graph .details-note, #gitgui-graph .files { margin: 10px 0 0; font-size: 12px; color: var(--muted-ink); overflow-wrap: anywhere; }
+#gitgui-graph .footer { display: flex; align-items: center; min-height: 24px; color: var(--muted-ink); margin: 0 -16px -16px; padding: 0 12px; border-top: 1px solid var(--edge); background: var(--soft); font: 11px 'Geist Mono', ui-monospace, monospace; }
+@media (max-width: 620px) {
+  #gitgui-graph .repo { display: none; }
+  #gitgui-graph .scope-row { flex-wrap: wrap; padding-top: 5px; padding-bottom: 5px; gap: 5px; }
+  #gitgui-graph col.graph { width: 84px; }
+  #gitgui-graph col.author, #gitgui-graph col.date, #gitgui-graph col.sha, #gitgui-graph .author-cell, #gitgui-graph .date-cell, #gitgui-graph .sha-cell, #gitgui-graph .author-heading, #gitgui-graph .date-heading, #gitgui-graph .sha-heading { display: none; }
+  #gitgui-graph .message-cell { padding-left: 8px; }
+  #gitgui-graph .commit-content { flex-wrap: wrap; height: auto; min-height: 28px; }
+  #gitgui-graph .ref-list { flex-wrap: wrap; margin-right: 0; flex-basis: 100%; padding-top: 4px; }
+  #gitgui-graph .ref-list:empty { display: none; }
+  #gitgui-graph .commit-button { flex-basis: 100%; }
+  #gitgui-graph .footer { flex-wrap: wrap; padding-top: 4px; padding-bottom: 4px; }
+}
+@media (pointer: coarse) { #gitgui-graph button, #gitgui-graph select { min-height: 44px; } }
 </style>
 </head>
 <body>
-<main id="gitgui-concept">
-  <p class="caption">Interface concept · sample data · try selecting, staging, or committing a file.</p>
-  <section class="window" aria-label="GitGUI desktop interface concept">
-    <header class="toolbar">
-      <div><span class="brand">GitGUI</span><div class="repo">sample-repository / main</div></div>
-      <div class="actions" aria-label="Remote actions, inactive in this concept">
-        <button type="button" disabled>Fetch</button><button type="button" disabled>Pull</button><button type="button" disabled>Push</button>
-      </div>
-    </header>
-    <nav class="navigation" aria-label="Repository views">
-      <button type="button" id="changes-button" aria-pressed="true">Changes</button>
-      <button type="button" id="history-button" aria-pressed="false">History</button>
-    </nav>
-    <div id="changes-view" class="layout">
-      <aside class="files" aria-label="Changed files">
-        <section class="file-group"><div class="panel-heading"><h2>Staged</h2><span id="staged-count" class="count"></span></div><div id="staged-files"></div></section>
-        <section class="file-group"><div class="panel-heading"><h2>Unstaged / untracked</h2><span id="unstaged-count" class="count"></span></div><div id="unstaged-files"></div></section>
-      </aside>
-      <section class="detail" aria-label="Diff and commit">
-        <h2 id="diff-title" class="diff-title"></h2>
-        <span id="diff-kind" class="hint"></span>
-        <div id="diff-content" class="diff" aria-label="Selected file diff"></div>
-        <form id="commit-form">
-          <h2>Create commit</h2>
-          <label for="summary">Summary</label><input id="summary" value="Add structured Git status" autocomplete="off">
-          <label for="body">Description <span class="hint">(optional)</span></label><textarea id="body" rows="2"></textarea>
-          <div class="commit-row"><span id="commit-count" class="hint"></span><button class="primary" id="commit-button" type="submit">Commit staged files</button></div>
-        </form>
-      </section>
-    </div>
-    <section id="history-view" aria-label="Commit history" hidden><ol id="history-list" class="history-list"></ol></section>
-    <p class="status" id="status" role="status" aria-live="polite">Sample data only. Remote actions are inactive; no repository is connected.</p>
-  </section>
+<main id="gitgui-graph">
+<p class="caption">Busy History theme · sample repository</p>
+<section class="window" aria-label="GitGUI branch graph interface concept">
+  <header class="topbar">
+    <div class="brand">gitgui</div>
+    <div class="tools sync" aria-label="Inactive sample Git actions"><button type="button" disabled>Fetch</button><button type="button" disabled>Pull</button><button type="button" disabled>Push</button></div><span class="repo">sample-repository · busy history</span>
+  </header>
+  <div class="scope-row">
+    <div class="scope-controls"><label for="scope">Scope</label><select id="scope"><option value="all">All branches</option><option value="feat/graph">feat/graph</option><option value="main">main</option><option value="fix/credentials">fix/credentials</option><option value="feat/diff">feat/diff</option></select></div>
+    <div class="tools"><button type="button" id="show-details">Details</button><button class="changes-button" type="button" disabled>Changes <span class="changes-count">3</span></button></div>
+  </div>
+  <div class="scene" id="scene">
+    <table aria-label="Commit history with branch refs and parent graph">
+      <colgroup><col class="graph"><col><col class="author"><col class="date"><col class="sha"></colgroup>
+      <thead><tr><th scope="col" aria-label="Graph"></th><th class="description-heading" scope="col">Description</th><th class="author-heading" scope="col">Author</th><th class="date-heading" scope="col">Date</th><th class="sha-heading" scope="col">Commit</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <svg id="graph" class="graph-layer" role="img" aria-label="Commit ancestry graph"></svg>
+  </div>
+  <dialog id="details" class="inspector" aria-labelledby="subject">
+    <div class="detail-title"><h2 id="subject"></h2><form method="dialog"><button type="submit" aria-label="Close commit details">Close</button></form></div>
+    <div class="detail-meta"><span id="author"></span><span>·</span><span id="date"></span><span>·</span><code id="oid"></code></div>
+    <div id="parents" class="parents"></div>
+    <p id="details-note" class="details-note"></p>
+    <p class="files"><span class="muted">Changed files </span><code id="files"></code></p>
+  </dialog>
+  <p id="status" class="footer" role="status">Select a commit or branch label. No repository is connected.</p>
+</section>
 </main>
 <script>
 (() => {
-  const root = document.getElementById('gitgui-concept');
-  function followTheme() {
-    const channels = getComputedStyle(document.documentElement).color.match(/[\d.]+/g);
-    const dark = channels?.length >= 3 ? channels.slice(0, 3).map(Number).reduce((a, b) => a + b, 0) > 382 : matchMedia('(prefers-color-scheme: dark)').matches;
-    root.style.colorScheme = dark ? 'dark' : 'light';
-  }
-  followTheme();
-  new MutationObserver(followTheme).observe(document.documentElement, { attributes: true });
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', followTheme);
+  const root = document.getElementById('gitgui-graph');
   const get = id => root.querySelector('#' + id);
-  const files = [
-    { id: 'git', path: 'src-tauri/src/git.rs', staged: true, type: 'Modified', lines: ['@@ -12,3 +12,4 @@', ' fn git_status() {', '-    git.args(["status"]);', '+    git.args(["status",', '+        "--porcelain=v2", "-z"]);', ' }'] },
-    { id: 'ui', path: 'src/main.ts', staged: false, type: 'Modified', lines: ['@@ -20,3 +20,3 @@', ' function refresh() {', '-    showLoading();', '+    showLoading("Reading changes…");', ' }'] },
-    { id: 'readme', path: 'README.md', staged: false, type: 'Untracked', lines: ['@@ -0,0 +1,3 @@', '+# GitGUI', '+', '+A desktop Git client for Linux.'] }
+  // shortcut: explicit sample lanes, derive lanes from Git's DAG in the application.
+  const data = [
+    ['bc09ef1', ['8ef711a'], 1, 'Improve branch label selection', 'You'],
+    ['d301e72', ['4aa7b90'], 0, 'Prepare Linux preview', 'Alex'],
+    ['8ef711a', ['c2003d1'], 1, 'Add lane selection', 'You'],
+    ['4aa7b90', ['0a7c531', '9ae104c'], 0, 'Merge fix/credentials', 'Alex'],
+    ['c2003d1', ['0a7c531'], 1, 'Render branch and tag labels', 'You'],
+    ['9ae104c', ['f271a80'], 2, 'Handle expired SSH agent', 'Sam'],
+    ['0a7c531', ['abc020e', '621fc0b'], 0, 'Merge feat/diff', 'Alex'],
+    ['621fc0b', ['89cc062'], 3, 'Highlight staged diff', 'Sam'],
+    ['f271a80', ['abc020e'], 2, 'Report credential helper errors', 'Sam'],
+    ['89cc062', ['abc020e'], 3, 'Add unified diff panel', 'Sam'],
+    ['abc020e', ['e8128c4'], 0, 'Refresh repository state', 'Alex'],
+    ['e8128c4', ['882319e', 'f168590'], 0, 'Merge feat/history', 'Alex'],
+    ['f168590', ['ccd7510'], 1, 'Show author and short SHA', 'You'],
+    ['ccd7510', ['882319e'], 1, 'Load commit history', 'You'],
+    ['882319e', ['cf99931'], 0, 'Select local repositories', 'Alex'],
+    ['cf99931', ['600d341'], 0, 'Create Tauri shell', 'Alex'],
+    ['600d341', [], 0, 'Initial commit', 'Alex']
   ];
-  const commits = [
-    { subject: 'Add repository selection', detail: 'Sample author · 38 minutes ago · 4a1b9d2' },
-    { subject: 'Create desktop shell', detail: 'Sample author · 2 hours ago · a732c10' }
+  const commits = data.map(([oid, parents, lane, subject, author], index) => ({ oid, parents, lane, subject, author, date: index < 5 ? 'Today' : index < 11 ? 'Yesterday' : '3 days ago' }));
+  const byId = new Map(commits.map(commit => [commit.oid, commit]));
+  const refs = [
+    { name: 'feat/graph', target: 'bc09ef1', kind: 'local', head: true },
+    { name: 'main', target: 'd301e72', kind: 'local' },
+    { name: 'origin/main', target: 'd301e72', kind: 'remote' },
+    { name: 'v0.2', target: 'd301e72', kind: 'tag' },
+    { name: 'fix/credentials', target: '9ae104c', kind: 'local' },
+    { name: 'feat/diff', target: '621fc0b', kind: 'local' },
+    { name: 'v0.1', target: 'abc020e', kind: 'tag' }
   ];
-  let selected = 'git';
-  let demoCommitCount = 0;
-  function message(text) { get('status').textContent = text; }
-  function updateCommitButton() {
-    const count = files.filter(file => file.staged).length;
-    get('commit-count').textContent = count + ' staged ' + (count === 1 ? 'file' : 'files');
-    get('commit-button').disabled = !count || !get('summary').value.trim();
+  let selected = '4aa7b90';
+  let visible = commits;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const palette = ['--blue', '--green', '--pink', '--cyan'];
+  const color = lane => getComputedStyle(root).getPropertyValue(palette[lane]).trim();
+  function ancestors(oid, found = new Set()) {
+    if (found.has(oid)) return found;
+    const commit = byId.get(oid);
+    if (!commit) throw new Error('Missing sample ancestor ' + oid);
+    found.add(oid);
+    for (const parent of commit.parents) ancestors(parent, found);
+    return found;
   }
+  function svgNode(tag, attributes) {
+    const node = document.createElementNS(svgNS, tag);
+    for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
+    return node;
+  }
+  function select(oid) { selected = oid; render(); }
   function render() {
-    for (const staged of [true, false]) {
-      const entries = files.filter(file => file.staged === staged);
-      const prefix = staged ? 'staged' : 'unstaged';
-      const container = get(prefix + '-files');
-      container.replaceChildren();
-      get(prefix + '-count').textContent = entries.length;
-      if (!entries.length) {
-        const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = staged ? 'No staged files' : 'No working-tree changes'; container.append(empty);
+    const scope = get('scope').value;
+    const included = scope === 'all' ? null : ancestors(refs.find(ref => ref.name === scope).target);
+    visible = commits.filter(commit => !included || included.has(commit.oid));
+    if (!visible.some(commit => commit.oid === selected)) selected = visible[0].oid;
+    get('rows').replaceChildren();
+    for (const commit of visible) {
+      const row = document.createElement('tr'); row.className = 'commit-row' + (commit.oid === selected ? ' selected' : ''); row.dataset.oid = commit.oid;
+      const list = document.createElement('span'); list.className = 'ref-list';
+      for (const ref of refs.filter(ref => ref.target === commit.oid)) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'ref ' + ref.kind + (ref.head ? ' head' : ''); button.style.color = color(commit.lane);
+        button.textContent = (ref.head ? 'HEAD → ' : '') + ref.name;
+        button.setAttribute('aria-label', (ref.head ? 'HEAD on ' : ref.kind + ' ') + ref.name + ', select commit ' + commit.oid);
+        button.addEventListener('click', () => { select(commit.oid); root.querySelector('[data-select="' + commit.oid + '"]').focus(); }); list.append(button);
       }
-      for (const file of entries) {
-        const row = document.createElement('div'); row.className = 'file';
-        const select = document.createElement('button'); select.type = 'button'; select.className = 'file-select'; select.setAttribute('aria-pressed', String(file.id === selected));
-        select.append(document.createTextNode(file.path));
-        const type = document.createElement('span'); type.className = 'file-type'; type.textContent = file.type; select.append(type);
-        select.addEventListener('click', () => { selected = file.id; render(); get('diff-title').scrollIntoView({ block: 'nearest' }); });
-        const action = document.createElement('button'); action.type = 'button'; action.className = 'file-action'; action.textContent = staged ? 'Unstage' : 'Stage'; action.setAttribute('aria-label', action.textContent + ' ' + file.path);
-        action.addEventListener('click', () => { file.staged = !file.staged; selected = file.id; render(); message((file.staged ? 'Staged ' : 'Unstaged ') + file.path + ' in the concept.'); });
-        row.append(select, action); container.append(row);
+      const graphCell = document.createElement('td'); graphCell.className = 'graph-cell';
+      const message = document.createElement('td'); message.className = 'message-cell'; const button = document.createElement('button'); button.type = 'button'; button.className = 'commit-button'; button.dataset.select = commit.oid;
+      button.textContent = commit.subject; button.setAttribute('aria-pressed', String(commit.oid === selected)); button.setAttribute('aria-label', commit.subject + ', ' + commit.author + ', commit ' + commit.oid + ', ' + commit.parents.length + ' parents');
+      button.addEventListener('click', () => { select(commit.oid); root.querySelector('[data-select="' + commit.oid + '"]').focus(); });
+      button.addEventListener('keydown', event => { if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return; event.preventDefault(); const index = visible.indexOf(commit); const next = visible[Math.max(0, Math.min(visible.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))]; select(next.oid); root.querySelector('[data-select="' + next.oid + '"]').focus(); });
+      const content = document.createElement('div'); content.className = 'commit-content'; content.append(list, button); message.append(content);
+      const author = document.createElement('td'); author.className = 'author-cell'; author.textContent = commit.author;
+      const date = document.createElement('td'); date.className = 'date-cell'; date.textContent = commit.date;
+      const sha = document.createElement('td'); sha.className = 'sha-cell'; sha.textContent = commit.oid;
+      row.append(graphCell, message, author, date, sha); get('rows').append(row);
+    }
+    const commit = byId.get(selected);
+    get('subject').textContent = commit.subject; get('author').textContent = commit.author; get('date').textContent = commit.date; get('oid').textContent = commit.oid;
+    get('parents').replaceChildren();
+    const label = document.createElement('span'); label.className = 'muted'; label.textContent = commit.parents.length ? 'Parents' : 'Root commit · no parents'; get('parents').append(label);
+    for (const oid of commit.parents) { const button = document.createElement('button'); button.type = 'button'; button.textContent = oid; button.setAttribute('aria-label', 'Inspect parent ' + oid); button.addEventListener('click', () => select(oid)); get('parents').append(button); }
+    get('details-note').textContent = commit.parents.length > 1 ? 'Merge commit · both parent histories are connected in the graph.' : commit.parents.length ? 'Follow the line downward to its parent commit.' : 'This commit begins the repository history.';
+    get('files').textContent = commit.subject.includes('diff') ? 'src/main.ts, src/styles.css' : commit.subject.includes('credential') || commit.subject.includes('SSH') ? 'src-tauri/src/git.rs' : 'src/graph.ts';
+    get('status').textContent = visible.length + ' sample commits · ' + (scope === 'all' ? 'all branches' : scope + ' ancestry') + ' · HEAD stays on feat/graph';
+    draw();
+  }
+  function draw() {
+    const rows = [...get('rows').children];
+    if (!rows.length) return;
+    const sceneRect = get('scene').getBoundingClientRect();
+    const cell = rows[0].cells[0].getBoundingClientRect();
+    const width = cell.width; const height = get('scene').offsetHeight;
+    const graph = get('graph'); graph.style.left = (cell.left - sceneRect.left) + 'px'; graph.setAttribute('width', width); graph.setAttribute('height', height); graph.setAttribute('viewBox', '0 0 ' + width + ' ' + height); graph.replaceChildren();
+    const description = svgNode('desc', {}); description.textContent = 'Colored commit paths connect each commit to its parents. Ring nodes are merges; the checked branch is feat/graph. Parent links are also available in the selected commit panel.'; graph.append(description);
+    const y = new Map(rows.map(row => { const bounds = row.getBoundingClientRect(); return [row.dataset.oid, bounds.top - sceneRect.top + bounds.height / 2]; }));
+    const x = lane => width < 100 ? 12 + lane * (width - 24) / 3 : 26 + lane * 18;
+    for (const commit of visible) {
+      for (const [index, oid] of commit.parents.entries()) {
+        const parent = byId.get(oid); const fromX = x(commit.lane); const toX = x(parent.lane); const fromY = y.get(commit.oid); const toY = y.get(oid);
+        if (toY === undefined || toY <= fromY) throw new Error('Invalid sample parent order');
+        const bend = Math.min(16, (toY - fromY) / 2);
+        const path = fromX === toX ? 'M ' + fromX + ' ' + fromY + ' V ' + toY : commit.parents.length > 1 && index > 0 ? 'M ' + fromX + ' ' + fromY + ' C ' + fromX + ' ' + (fromY + bend) + ' ' + toX + ' ' + (fromY + bend) + ' ' + toX + ' ' + (fromY + 2 * bend) + ' V ' + toY : 'M ' + fromX + ' ' + fromY + ' V ' + (toY - 2 * bend) + ' C ' + fromX + ' ' + (toY - bend) + ' ' + toX + ' ' + (toY - bend) + ' ' + toX + ' ' + toY;
+        graph.append(svgNode('path', { d: path, fill: 'none', stroke: color(commit.parents.length > 1 && index > 0 ? parent.lane : commit.lane), 'stroke-width': 1.75, 'data-child': commit.oid, 'data-parent': oid }));
       }
     }
-    const file = files.find(file => file.id === selected);
-    get('diff-title').textContent = file ? file.path : 'No file selected';
-    get('diff-kind').textContent = file ? (file.staged ? 'Staged diff · included in the next commit' : 'Working-tree diff · outside the next commit') : 'Working tree clean';
-    get('diff-content').replaceChildren();
-    for (const [index, text] of (file ? file.lines : ['No pending changes.']).entries()) {
-      const row = document.createElement('div'); row.className = 'line' + (text.startsWith('+') ? ' add' : text.startsWith('-') ? ' remove' : '');
-      const number = document.createElement('span'); number.className = 'number'; number.textContent = index ? index : '·'; number.setAttribute('aria-hidden', 'true');
-      const code = document.createElement('span'); code.textContent = text; row.append(number, code); get('diff-content').append(row);
+    for (const commit of visible) {
+      const centerX = x(commit.lane); const centerY = y.get(commit.oid);
+      if (refs.some(ref => ref.head && ref.target === commit.oid)) graph.append(svgNode('circle', { cx: centerX, cy: centerY, r: 8, fill: 'none', stroke: color(commit.lane), 'stroke-width': 1, opacity: .35 }));
+      graph.append(svgNode('circle', { cx: centerX, cy: centerY, r: commit.parents.length > 1 ? 5.5 : 4, fill: commit.parents.length !== 1 ? getComputedStyle(root).getPropertyValue('--surface').trim() : color(commit.lane), stroke: color(commit.lane), 'stroke-width': 2, 'data-node': commit.oid }));
     }
-    get('history-list').replaceChildren();
-    for (const commit of commits) { const li = document.createElement('li'); li.textContent = commit.subject; const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = commit.detail; li.append(meta); get('history-list').append(li); }
-    updateCommitButton();
   }
-  function showView(history) {
-    get('changes-view').hidden = history; get('history-view').hidden = !history;
-    get('changes-button').setAttribute('aria-pressed', String(!history)); get('history-button').setAttribute('aria-pressed', String(history));
-  }
-  get('changes-button').addEventListener('click', () => showView(false));
-  get('history-button').addEventListener('click', () => showView(true));
-  get('summary').addEventListener('input', updateCommitButton);
-  get('commit-form').addEventListener('submit', event => {
-    event.preventDefault();
-    if (get('commit-button').disabled) return;
-    const count = files.filter(file => file.staged).length;
-    commits.unshift({ subject: get('summary').value.trim(), detail: 'Sample author · just now · demo-' + (++demoCommitCount) });
-    for (let i = files.length - 1; i >= 0; i--) if (files[i].staged) files.splice(i, 1);
-    selected = files[0]?.id || null; get('summary').value = ''; get('body').value = ''; render();
-    message('Demo commit created with ' + count + ' staged ' + (count === 1 ? 'file' : 'files') + '. Unstaged files remain. No Git command was run.');
-  });
+  get('scope').addEventListener('change', render);
+  get('show-details').addEventListener('click', () => get('details').showModal());
   render();
-  // Optional preview-only check: open with ?selftest=1 to verify the sample interactions.
+  new ResizeObserver(draw).observe(get('scene'));
+  // Run only in the preview self-check, leaving the displayed concept untouched.
   if (new URLSearchParams(location.search).has('selftest')) {
-    function check(ok, detail) { if (!ok) throw new Error(detail); }
-    const staged = get('staged-count').textContent;
-    const button = root.querySelector('[aria-label="Stage src/main.ts"]'); button.click();
-    check(Number(get('staged-count').textContent) === Number(staged) + 1, 'Stage must update the index group');
-    root.querySelector('[aria-label="Unstage src/main.ts"]').click();
-    check(get('staged-count').textContent === staged, 'Unstage must restore the group count');
-    get('summary').value = ' '; get('summary').dispatchEvent(new Event('input')); check(get('commit-button').disabled, 'Blank summary must disable commit');
-    get('summary').value = 'Demo verification'; get('summary').dispatchEvent(new Event('input')); get('commit-button').click();
-    check(get('staged-count').textContent === '0' && get('unstaged-count').textContent === '2', 'Commit must preserve unstaged files');
-    get('history-button').click(); check(!get('history-view').hidden && get('history-list').firstChild.textContent.includes('Demo verification'), 'History must include the sample commit');
-    console.log('PASS: stage, unstage, summary validation, staged-only commit, history');
+    const check = (ok, message) => { if (!ok) throw new Error(message); };
+    check(get('graph').querySelectorAll('[data-node]').length === 17, 'Every commit must have one node');
+    check(get('graph').querySelectorAll('[data-child]').length === 19, 'Every parent edge must be present');
+    check(!get('details').open && get('details').getBoundingClientRect().height === 0, 'Details must not occupy space below the graph');
+    get('show-details').click(); check(get('details').open, 'Details button must open the dialog');
+    get('details').querySelector('[aria-label="Close commit details"]').click(); check(!get('details').open, 'Close must dismiss the dialog');
+    select('4aa7b90'); check(get('parents').querySelectorAll('button').length === 2, 'A merge must expose both parents');
+    root.querySelector('[aria-label="Inspect parent 9ae104c"]').click(); check(selected === '9ae104c', 'Parent navigation must select the actual parent');
+    root.querySelector('[aria-label="HEAD on feat/graph, select commit bc09ef1"]').click(); check(selected === 'bc09ef1', 'Branch labels must select their exact tips');
+    get('scope').value = 'main'; get('scope').dispatchEvent(new Event('change'));
+    check(visible.length === 14 && !visible.some(commit => ['bc09ef1', '8ef711a', 'c2003d1'].includes(commit.oid)), 'Main scope must omit its unmerged sibling branch');
+    check(visible.some(commit => commit.oid === '621fc0b') && get('graph').querySelectorAll('[data-child]').length === 16, 'Merged branch ancestry must remain connected');
+    check(document.documentElement.scrollWidth <= innerWidth, 'Concept must fit the viewport');
+    console.log('PASS: hidden details, open/close dialog, 17 nodes, 19 parent edges, merge parents, parent navigation, branch tips, scoped ancestry, viewport');
   }
 })();
 </script>
