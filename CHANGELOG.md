@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 — 2026-10-11
+
+- Offer Enable safeguards again in repositories that have older GitGUI hooks, so they get the secret scan and test gate.
+
 ## 0.4.0 — 2026-10-11
 
 - Add checkpoints: save restorable snapshots of all files (including new ones) without committing, automatically when you return to GitGUI, and restore them in one click.

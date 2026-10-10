@@ -85,8 +85,9 @@ pub fn test_command(root: &Path) -> Option<&'static str> {
     }
     root.join("Cargo.toml").exists().then_some("cargo test")
 }
+/// True only for the current hook text, so repos with older GitGUI hooks are offered the update.
 pub fn enabled(hooks: &Path) -> bool {
-    read(&hooks.join("pre-commit")).is_some_and(|t| t.contains(MARKER))
+    read(&hooks.join("pre-commit")).is_some_and(|t| t == pre_commit())
 }
 
 pub fn bump(version: &str, level: &str) -> Result<String> {
@@ -302,6 +303,17 @@ mod tests {
     fn enable_creates_version_files_and_refuses_foreign_hooks() {
         let dir = tempfile::tempdir().unwrap();
         let (root, hooks) = (dir.path(), dir.path().join(".git/hooks"));
+        enable(root, &hooks).unwrap();
+        assert!(enabled(&hooks));
+        fs::write(
+            hooks.join("pre-commit"),
+            format!("#!/bin/sh\n{MARKER}: old\n"),
+        )
+        .unwrap();
+        assert!(
+            !enabled(&hooks),
+            "outdated GitGUI hooks are offered the update"
+        );
         enable(root, &hooks).unwrap();
         assert!(enabled(&hooks));
         assert_eq!(current(root).as_deref(), Some("0.1.0"));
