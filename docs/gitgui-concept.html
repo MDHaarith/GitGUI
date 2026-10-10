@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GitGUI interface concept</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: transparent; }
+  #gitgui-concept {
+    color-scheme: light dark;
+    --surface: light-dark(#ffffff, #181d25);
+    --soft: light-dark(#f3f5f8, #202733);
+    --ink: light-dark(#1f2937, #e6ecf5);
+    --secondary: light-dark(#566376, #b0bdce);
+    --edge: light-dark(#d4dce7, #3d495b);
+    --selected: light-dark(#e7efff, #263c60);
+    --brand: light-dark(#2855bd, #aecaff);
+    --button: light-dark(#2855bd, #aac6ff);
+    --button-ink: light-dark(#ffffff, #122448);
+    --added: light-dark(#e9f5ec, #1b3929);
+    --deleted: light-dark(#faeeee, #48272c);
+    font: 14px/1.5 system-ui, sans-serif; color: var(--ink);
+  }
+  #gitgui-concept .caption { color: var(--secondary); margin: 0 0 12px; }
+  #gitgui-concept .window { background: var(--surface); border: 1px solid var(--edge); border-radius: 12px; padding: 16px; }
+  #gitgui-concept .toolbar, #gitgui-concept .actions, #gitgui-concept .panel-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  #gitgui-concept .toolbar { justify-content: space-between; gap: 12px; }
+  #gitgui-concept .brand { font-size: 17px; font-weight: 600; }
+  #gitgui-concept .repo { color: var(--secondary); margin-top: 2px; }
+  #gitgui-concept button { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--edge); border-radius: 6px; padding: 6px 10px; }
+  #gitgui-concept button:disabled { opacity: .55; }
+  #gitgui-concept button[aria-pressed="true"] { background: var(--selected); color: var(--brand); }
+  #gitgui-concept .navigation { display: flex; gap: 8px; margin: 16px 0; }
+  #gitgui-concept .layout { display: grid; grid-template-columns: minmax(185px, .85fr) minmax(0, 1.5fr); gap: 16px; }
+  #gitgui-concept .files { background: var(--soft); border-radius: 8px; padding: 16px; }
+  #gitgui-concept h2 { font-size: 14px; font-weight: 600; margin: 0; }
+  #gitgui-concept .count, #gitgui-concept .hint { color: var(--secondary); }
+  #gitgui-concept .panel-heading { justify-content: space-between; margin-bottom: 8px; }
+  #gitgui-concept .file-group + .file-group { margin-top: 24px; }
+  #gitgui-concept .file { margin-top: 8px; }
+  #gitgui-concept .file-select { width: 100%; display: block; text-align: left; overflow-wrap: anywhere; }
+  #gitgui-concept .file-action { margin-top: 4px; font-size: 12px; padding: 4px 8px; }
+  #gitgui-concept .empty { margin: 8px 0; color: var(--secondary); font-size: 12px; }
+  #gitgui-concept .file-type { font-size: 12px; color: var(--secondary); display: block; }
+  #gitgui-concept .detail { min-width: 0; }
+  #gitgui-concept .diff-title { overflow-wrap: anywhere; }
+  #gitgui-concept .diff { background: var(--soft); border-radius: 8px; padding: 16px; font: 12px/1.8 ui-monospace, monospace; margin: 8px 0 18px; }
+  #gitgui-concept .line { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #gitgui-concept .line.add { background: var(--added); }
+  #gitgui-concept .line.remove { background: var(--deleted); }
+  #gitgui-concept .number { color: var(--secondary); user-select: none; }
+  #gitgui-concept label { display: block; margin: 10px 0 4px; font-weight: 500; }
+  #gitgui-concept input, #gitgui-concept textarea { width: 100%; padding: 8px 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--edge); border-radius: 6px; font: inherit; }
+  #gitgui-concept textarea { resize: vertical; min-height: 64px; }
+  #gitgui-concept .commit-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; justify-content: space-between; margin-top: 12px; }
+  #gitgui-concept .primary { background: var(--button); color: var(--button-ink); border-color: var(--button); }
+  #gitgui-concept .status { margin: 16px 0 0; color: var(--secondary); min-height: 21px; }
+  #gitgui-concept .history-list { padding-left: 20px; margin: 0; }
+  #gitgui-concept .history-list li { padding: 10px 0; }
+  #gitgui-concept .meta { display: block; color: var(--secondary); font-size: 12px; }
+  #gitgui-concept [hidden] { display: none !important; }
+  @media (max-width: 520px) { #gitgui-concept .layout { grid-template-columns: minmax(0, 1fr); } }
+  @media (pointer: coarse) { #gitgui-concept button { min-height: 44px; } #gitgui-concept input, #gitgui-concept textarea { font-size: 16px; } }
+</style>
+</head>
+<body>
+<main id="gitgui-concept">
+  <p class="caption">Interface concept · sample data · try selecting, staging, or committing a file.</p>
+  <section class="window" aria-label="GitGUI desktop interface concept">
+    <header class="toolbar">
+      <div><span class="brand">GitGUI</span><div class="repo">sample-repository / main</div></div>
+      <div class="actions" aria-label="Remote actions, inactive in this concept">
+        <button type="button" disabled>Fetch</button><button type="button" disabled>Pull</button><button type="button" disabled>Push</button>
+      </div>
+    </header>
+    <nav class="navigation" aria-label="Repository views">
+      <button type="button" id="changes-button" aria-pressed="true">Changes</button>
+      <button type="button" id="history-button" aria-pressed="false">History</button>
+    </nav>
+    <div id="changes-view" class="layout">
+      <aside class="files" aria-label="Changed files">
+        <section class="file-group"><div class="panel-heading"><h2>Staged</h2><span id="staged-count" class="count"></span></div><div id="staged-files"></div></section>
+        <section class="file-group"><div class="panel-heading"><h2>Unstaged / untracked</h2><span id="unstaged-count" class="count"></span></div><div id="unstaged-files"></div></section>
+      </aside>
+      <section class="detail" aria-label="Diff and commit">
+        <h2 id="diff-title" class="diff-title"></h2>
+        <span id="diff-kind" class="hint"></span>
+        <div id="diff-content" class="diff" aria-label="Selected file diff"></div>
+        <form id="commit-form">
+          <h2>Create commit</h2>
+          <label for="summary">Summary</label><input id="summary" value="Add structured Git status" autocomplete="off">
+          <label for="body">Description <span class="hint">(optional)</span></label><textarea id="body" rows="2"></textarea>
+          <div class="commit-row"><span id="commit-count" class="hint"></span><button class="primary" id="commit-button" type="submit">Commit staged files</button></div>
+        </form>
+      </section>
+    </div>
+    <section id="history-view" aria-label="Commit history" hidden><ol id="history-list" class="history-list"></ol></section>
+    <p class="status" id="status" role="status" aria-live="polite">Sample data only. Remote actions are inactive; no repository is connected.</p>
+  </section>
+</main>
+<script>
+(() => {
+  const root = document.getElementById('gitgui-concept');
+  function followTheme() {
+    const channels = getComputedStyle(document.documentElement).color.match(/[\d.]+/g);
+    const dark = channels?.length >= 3 ? channels.slice(0, 3).map(Number).reduce((a, b) => a + b, 0) > 382 : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.style.colorScheme = dark ? 'dark' : 'light';
+  }
+  followTheme();
+  new MutationObserver(followTheme).observe(document.documentElement, { attributes: true });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', followTheme);
+  const get = id => root.querySelector('#' + id);
+  const files = [
+    { id: 'git', path: 'src-tauri/src/git.rs', staged: true, type: 'Modified', lines: ['@@ -12,3 +12,4 @@', ' fn git_status() {', '-    git.args(["status"]);', '+    git.args(["status",', '+        "--porcelain=v2", "-z"]);', ' }'] },
+    { id: 'ui', path: 'src/main.ts', staged: false, type: 'Modified', lines: ['@@ -20,3 +20,3 @@', ' function refresh() {', '-    showLoading();', '+    showLoading("Reading changes…");', ' }'] },
+    { id: 'readme', path: 'README.md', staged: false, type: 'Untracked', lines: ['@@ -0,0 +1,3 @@', '+# GitGUI', '+', '+A desktop Git client for Linux.'] }
+  ];
+  const commits = [
+    { subject: 'Add repository selection', detail: 'Sample author · 38 minutes ago · 4a1b9d2' },
+    { subject: 'Create desktop shell', detail: 'Sample author · 2 hours ago · a732c10' }
+  ];
+  let selected = 'git';
+  let demoCommitCount = 0;
+  function message(text) { get('status').textContent = text; }
+  function updateCommitButton() {
+    const count = files.filter(file => file.staged).length;
+    get('commit-count').textContent = count + ' staged ' + (count === 1 ? 'file' : 'files');
+    get('commit-button').disabled = !count || !get('summary').value.trim();
+  }
+  function render() {
+    for (const staged of [true, false]) {
+      const entries = files.filter(file => file.staged === staged);
+      const prefix = staged ? 'staged' : 'unstaged';
+      const container = get(prefix + '-files');
+      container.replaceChildren();
+      get(prefix + '-count').textContent = entries.length;
+      if (!entries.length) {
+        const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = staged ? 'No staged files' : 'No working-tree changes'; container.append(empty);
+      }
+      for (const file of entries) {
+        const row = document.createElement('div'); row.className = 'file';
+        const select = document.createElement('button'); select.type = 'button'; select.className = 'file-select'; select.setAttribute('aria-pressed', String(file.id === selected));
+        select.append(document.createTextNode(file.path));
+        const type = document.createElement('span'); type.className = 'file-type'; type.textContent = file.type; select.append(type);
+        select.addEventListener('click', () => { selected = file.id; render(); get('diff-title').scrollIntoView({ block: 'nearest' }); });
+        const action = document.createElement('button'); action.type = 'button'; action.className = 'file-action'; action.textContent = staged ? 'Unstage' : 'Stage'; action.setAttribute('aria-label', action.textContent + ' ' + file.path);
+        action.addEventListener('click', () => { file.staged = !file.staged; selected = file.id; render(); message((file.staged ? 'Staged ' : 'Unstaged ') + file.path + ' in the concept.'); });
+        row.append(select, action); container.append(row);
+      }
+    }
+    const file = files.find(file => file.id === selected);
+    get('diff-title').textContent = file ? file.path : 'No file selected';
+    get('diff-kind').textContent = file ? (file.staged ? 'Staged diff · included in the next commit' : 'Working-tree diff · outside the next commit') : 'Working tree clean';
+    get('diff-content').replaceChildren();
+    for (const [index, text] of (file ? file.lines : ['No pending changes.']).entries()) {
+      const row = document.createElement('div'); row.className = 'line' + (text.startsWith('+') ? ' add' : text.startsWith('-') ? ' remove' : '');
+      const number = document.createElement('span'); number.className = 'number'; number.textContent = index ? index : '·'; number.setAttribute('aria-hidden', 'true');
+      const code = document.createElement('span'); code.textContent = text; row.append(number, code); get('diff-content').append(row);
+    }
+    get('history-list').replaceChildren();
+    for (const commit of commits) { const li = document.createElement('li'); li.textContent = commit.subject; const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = commit.detail; li.append(meta); get('history-list').append(li); }
+    updateCommitButton();
+  }
+  function showView(history) {
+    get('changes-view').hidden = history; get('history-view').hidden = !history;
+    get('changes-button').setAttribute('aria-pressed', String(!history)); get('history-button').setAttribute('aria-pressed', String(history));
+  }
+  get('changes-button').addEventListener('click', () => showView(false));
+  get('history-button').addEventListener('click', () => showView(true));
+  get('summary').addEventListener('input', updateCommitButton);
+  get('commit-form').addEventListener('submit', event => {
+    event.preventDefault();
+    if (get('commit-button').disabled) return;
+    const count = files.filter(file => file.staged).length;
+    commits.unshift({ subject: get('summary').value.trim(), detail: 'Sample author · just now · demo-' + (++demoCommitCount) });
+    for (let i = files.length - 1; i >= 0; i--) if (files[i].staged) files.splice(i, 1);
+    selected = files[0]?.id || null; get('summary').value = ''; get('body').value = ''; render();
+    message('Demo commit created with ' + count + ' staged ' + (count === 1 ? 'file' : 'files') + '. Unstaged files remain. No Git command was run.');
+  });
+  render();
+  // Optional preview-only check: open with ?selftest=1 to verify the sample interactions.
+  if (new URLSearchParams(location.search).has('selftest')) {
+    function check(ok, detail) { if (!ok) throw new Error(detail); }
+    const staged = get('staged-count').textContent;
+    const button = root.querySelector('[aria-label="Stage src/main.ts"]'); button.click();
+    check(Number(get('staged-count').textContent) === Number(staged) + 1, 'Stage must update the index group');
+    root.querySelector('[aria-label="Unstage src/main.ts"]').click();
+    check(get('staged-count').textContent === staged, 'Unstage must restore the group count');
+    get('summary').value = ' '; get('summary').dispatchEvent(new Event('input')); check(get('commit-button').disabled, 'Blank summary must disable commit');
+    get('summary').value = 'Demo verification'; get('summary').dispatchEvent(new Event('input')); get('commit-button').click();
+    check(get('staged-count').textContent === '0' && get('unstaged-count').textContent === '2', 'Commit must preserve unstaged files');
+    get('history-button').click(); check(!get('history-view').hidden && get('history-list').firstChild.textContent.includes('Demo verification'), 'History must include the sample commit');
+    console.log('PASS: stage, unstage, summary validation, staged-only commit, history');
+  }
+})();
+</script>
+</body>
+</html>
