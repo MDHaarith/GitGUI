@@ -2,11 +2,11 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { open, confirm, message as nativeMessage } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { api, type Checkpoint, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo } from './git.ts';
+import { api, type Answer, type Checkpoint, type Session, type SessionFile, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo } from './git.ts';
 import { findCommits, layoutHistory, paintGraph, type Layout } from './graph.ts';
 import { numberDiff } from './diff.ts';
 import { wireDropdown } from './dropdown.ts';
-import { explainError, explainState } from './explain.ts';
+import { aiCost, explainCrash, explainError, explainState, sortByRisk } from './explain.ts';
 import './styles.css';
 
 const app = document.getElementById('app')!;
@@ -27,7 +27,7 @@ app.innerHTML = `
     <span class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v10a4 4 0 0 0 4 4h1m5-14v2a5 5 0 0 1-5 5H7"/><circle cx="7" cy="5" r="2.5"/><circle cx="17" cy="5" r="2.5"/><circle cx="15" cy="19" r="2.5"/></svg>GitGUI<span class="app-version" id="app-version" hidden></span></span>
     <button class="secondary" id="open-repo">Open repository</button><button class="secondary" id="init-repo">Init repository</button>
     <select id="recent-repos" aria-label="Repository"><option value="">Recent repositories</option></select>
-    <div class="toolbar-actions"><button id="fetch" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-fetch"/></svg>Fetch</button><button id="pull" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-pull"/></svg>Pull</button><button id="push" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-push"/></svg>Push</button>
+    <div class="toolbar-actions"><button id="publish" data-repo hidden title="Create a private GitHub repository and upload this code as a backup (needs the GitHub CLI, gh)">Publish to GitHub</button><button id="fetch" data-repo data-tip="Fetch: download news from the server without changing your files"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-fetch"/></svg>Fetch</button><button id="pull" data-repo data-tip="Pull: download the server's new commits into your branch"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-pull"/></svg>Pull</button><button id="push" data-repo data-tip="Push: upload your commits to the server (your backup)"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-push"/></svg>Push</button>
     <button id="refresh" data-repo><svg class="chrome-icon" id="refresh-icon" aria-hidden="true"><use href="#chrome-refresh"/></svg>Refresh</button></div>
     <span class="repo-name" id="repo-name"><span id="repo-label">No repository selected</span><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-chevron"/></svg><span class="context-branch" id="repo-branch" hidden></span></span>
   </header>
@@ -41,6 +41,11 @@ app.innerHTML = `
     <span class="spacer"></span>
     <button id="details-button" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-panel"/></svg>Details</button>
     <button id="checkpoints-button" data-repo title="Save or restore snapshots of your files">Checkpoints</button>
+    <button id="session-button" data-repo title="See what changed since your last checkpoint or commit, riskiest first, and undo single files">Review AI changes</button>
+    <button id="experiment-button" data-repo title="Work on a throwaway copy (a branch) that you can keep or discard">Try something risky</button><button id="experiment-keep" data-repo hidden title="Merge this experiment into the branch it started from">Keep it</button><button id="experiment-discard" data-repo hidden title="Delete this experiment and return to where you were">Throw it away</button>
+    <button id="run-button" data-repo title="Start your app and watch its output">Run</button>
+    <button id="rules-button" data-repo title="Rules every AI agent reads before changing this project (AGENTS.md)">AI rules</button>
+    <button id="help-button" title="How GitGUI works and what the Git words mean">Help</button>
     <button class="chip" id="changes-button" data-repo>Changes <span class="mono" id="changes-count">0</span></button>
   </nav>
   <div class="errorbar" id="error" role="alert" hidden><p id="error-text"></p><button id="dismiss-error" aria-label="Dismiss error">Close</button></div>
@@ -74,13 +79,14 @@ app.innerHTML = `
     </aside>
     </div>
     <section class="changes" id="changes" aria-label="Working changes" hidden>
-      <header class="panelbar"><h2>Working changes</h2><span id="operation-note" class="muted"></span><span class="spacer"></span><button id="close-changes">Close</button></header>
+      <header class="panelbar"><h2>Working changes</h2><span id="operation-note" class="muted"></span><button id="operation-continue" class="chip" hidden title="Finish the merge, rebase, cherry-pick or revert now that conflicts are resolved">Continue</button><button id="operation-abort" hidden title="Cancel it and go back to how things were before it started">Abort</button><span class="spacer"></span><button id="undo-commit" data-repo title="Take back the last commit (if not pushed yet); its changes stay staged">Undo last commit</button><button id="close-changes">Close</button></header>
       <div class="changes-body">
         <div class="file-list" id="file-list"></div>
         <div class="working-preview"><div class="preview-label" id="working-path">Select a file to review its diff.</div><pre class="diff" id="working-diff"></pre></div>
         <form class="composer" id="commit-form">
           <label for="summary">Summary</label><input id="summary" required maxlength="1000" autocomplete="off" placeholder="Describe this commit">
           <label for="body">Description <span class="muted">(optional)</span></label><textarea id="body" maxlength="64000" rows="3"></textarea>
+          <div class="commit-row"><button type="button" id="ai-message" data-repo title="Let Claude write the commit message from the staged changes">Write message with AI</button><button type="button" id="ai-explain" data-repo title="Let Claude explain the staged changes in plain English">Explain staged changes</button></div>
           <div class="commit-row"><span id="version-controls"><label for="bump">Version <span class="mono" id="repo-version"></span></label> <select id="bump" data-repo><option value="minor">Minor · feature</option><option value="patch">Patch · fix</option><option value="major">Major · breaking</option><option value="">No bump</option></select></span><button id="enable-versioning" data-repo title="Block secrets and failing tests, and give every code commit its own version">Enable safeguards</button></div>
           <div class="commit-row"><span id="staged-count">0 staged files</span><button class="primary" id="commit-button" type="submit" data-repo>Commit staged</button></div>
         </form>
@@ -102,6 +108,51 @@ app.innerHTML = `
     <form id="checkpoint-form" class="form-grid"><label for="checkpoint-name">Save your current files</label><input id="checkpoint-name" maxlength="200" autocomplete="off" placeholder="Before asking the AI to …"><div class="row"><button class="chip" type="submit">Save checkpoint</button></div></form>
     <p class="muted">GitGUI also saves one automatically when you come back to the window (at most every 10 minutes). Restoring puts files back exactly as they were; your current files are saved as a checkpoint first, and files created later are kept.</p>
     <ol class="checkpoint-list" id="checkpoint-list"></ol>
+  </dialog>
+  <dialog class="branch-dialog wide-dialog" id="session-dialog" aria-labelledby="session-title">
+    <div class="dialog-head"><h2 id="session-title">What did the AI change?</h2><form method="dialog"><button type="submit">Close</button></form></div>
+    <p id="session-note" class="muted"></p><ul class="health-list" id="health-list"></ul>
+    <div class="row"><button class="chip" id="session-explain">Explain with AI</button><button id="session-undo-all">Undo all</button></div>
+    <ol class="checkpoint-list" id="session-list"></ol><pre class="diff dialog-pre" id="session-diff"></pre>
+  </dialog>
+  <dialog class="branch-dialog" id="experiment-dialog" aria-labelledby="experiment-title">
+    <div class="dialog-head"><h2 id="experiment-title">Try something risky</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
+    <form id="experiment-form" class="form-grid"><p>GitGUI makes a separate copy of your code (a branch). Let the AI try anything there, then <strong>Keep it</strong> to bring the changes back or <strong>Throw it away</strong> to return exactly to where you were.</p><label for="experiment-name">What are you trying?</label><input id="experiment-name" maxlength="80" required autocomplete="off" placeholder="new login page"><div class="row"><button class="primary" type="submit">Start experiment</button></div></form>
+  </dialog>
+  <dialog class="branch-dialog wide-dialog" id="run-dialog" aria-labelledby="run-title">
+    <div class="dialog-head"><h2 id="run-title">Run project</h2><span class="spacer"></span><button class="primary" id="run-start">Start</button><button id="run-stop" disabled>Stop</button><form method="dialog"><button type="submit">Close</button></form></div>
+    <p class="muted">GitGUI guesses the start command (npm run dev, cargo run, python main.py…). Change it with <code>git config gitgui.runCommand "&lt;command&gt;"</code>.</p>
+    <p class="run-hint" id="run-hint" role="alert" hidden></p><pre class="diff dialog-pre" id="run-output" aria-live="off"></pre>
+  </dialog>
+  <dialog class="branch-dialog wide-dialog" id="rules-dialog" aria-labelledby="rules-title">
+    <div class="dialog-head"><h2 id="rules-title">AI rules (AGENTS.md)</h2><form method="dialog"><button type="submit">Close</button></form></div>
+    <form id="rules-form" class="form-grid"><p class="muted">Claude Code, Codex, Cursor and other agents read these rules before changing your project. GitGUI also links them from CLAUDE.md.</p><textarea id="rules-text" rows="16" maxlength="200000" aria-label="Rules for AI agents"></textarea><div class="row"><button type="button" id="rules-starter">Add starter rules</button><button class="primary" type="submit">Save rules</button></div></form>
+  </dialog>
+  <dialog class="branch-dialog wide-dialog" id="ai-dialog" aria-labelledby="ai-title">
+    <div class="dialog-head"><h2 id="ai-title">Claude</h2><form method="dialog"><button type="submit">Close</button></form></div>
+    <form id="key-form" class="form-grid" hidden><label for="api-key">Claude API key</label><input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-…"><p class="muted">Create a key at console.anthropic.com. It is stored only on this computer, readable by your user alone.</p><div class="row"><button class="primary" type="submit">Save key</button></div></form>
+    <pre class="message ai-answer" id="ai-answer"></pre><p class="muted" id="ai-usage"></p>
+  </dialog>
+  <dialog class="branch-dialog wide-dialog" id="help-dialog" aria-labelledby="help-title">
+    <div class="dialog-head"><h2 id="help-title">Welcome to GitGUI</h2><form method="dialog"><button type="submit">Got it</button></form></div>
+    <ol class="tour">
+      <li><strong>New project:</strong> Init repository creates one with safeguards: secrets and failing tests are blocked and every feature gets its own version.</li>
+      <li><strong>Before asking an AI to change things:</strong> save a Checkpoint, or use Try something risky for big ideas.</li>
+      <li><strong>After the AI is done:</strong> Review AI changes shows every changed file, riskiest first. Undo single files, or let Claude explain them.</li>
+      <li><strong>Happy with it?</strong> In Changes, stage the files, press Write message with AI, choose a version, and Commit.</li>
+      <li><strong>Back it up:</strong> Publish to GitHub once, then Push after each commit.</li>
+      <li><strong>Something broke?</strong> Run shows your app's output and explains common crashes; Checkpoints and Undo last commit take you back.</li>
+    </ol>
+    <dl class="glossary">
+      <dt>Commit</dt><dd>A saved version of your project with a message saying what changed.</dd>
+      <dt>Stage</dt><dd>Choose which changed files go into the next commit.</dd>
+      <dt>Branch</dt><dd>A separate line of work. Experiments are branches.</dd>
+      <dt>Remote / GitHub</dt><dd>A copy of your project on a server: your backup and how you share code.</dd>
+      <dt>Push / Pull / Fetch</dt><dd>Upload your commits / download others' commits / check for news without changing files.</dd>
+      <dt>Merge conflict</dt><dd>Two changes edited the same lines; you pick which one to keep.</dd>
+      <dt>Checkpoint</dt><dd>A GitGUI snapshot of all files that is not a commit; restore it any time.</dd>
+      <dt>HEAD</dt><dd>The commit you are on right now.</dd>
+    </dl>
   </dialog>
   <dialog class="branch-dialog" id="remote-dialog" aria-labelledby="remote-title">
     <div class="dialog-head"><h2 id="remote-title">Choose remote</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
@@ -168,12 +219,12 @@ function normal() { return !!repo && !repo.operation; }
 function stagedFiles() { return repo?.files.filter(file => file.index !== '.' && !file.untracked && !file.conflicted) ?? []; }
 function disable(id: string, reason: string) {
   const control = get<HTMLButtonElement | HTMLSelectElement>(id);
-  control.disabled = !!reason; control.title = reason;
+  control.disabled = !!reason; control.title = reason || control.dataset.tip || '';
   if (reason) control.setAttribute('aria-description', reason); else control.removeAttribute('aria-description');
 }
 function updateControls() {
   const unavailable = busy ? 'Wait for the current Git operation to finish.' : !repo ? 'Open a repository first.' : '';
-  const blocked = unavailable || (repo?.operation ? 'Finish the ' + repo.operation + ' in the terminal, then refresh.' : '');
+  const blocked = unavailable || (repo?.operation ? 'Finish the ' + repo.operation + ' first (Continue or Abort in Changes).' : '');
   document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('[data-repo]').forEach(node => { node.disabled = !!unavailable; if (unavailable) node.setAttribute('aria-description', unavailable); else node.removeAttribute('aria-description'); });
   disable('open-repo', busy ? unavailable : ''); disable('init-repo', busy ? unavailable : ''); disable('welcome-open', busy ? unavailable : '');
   disable('details-button', unavailable || (!selected ? 'Select a commit to review its details.' : ''));
@@ -184,6 +235,10 @@ function updateControls() {
   disable('commit-button', blocked || (!stagedFiles().length ? 'Stage at least one file before committing.' : !input('summary').value.trim() ? 'Enter a commit summary.' : ''));
   disable('switch-branch', blocked || (!select('branch-select').value ? 'Choose a local branch.' : ''));
   disable('create-branch', blocked || (!repo?.head ? 'Create the first commit before creating another branch.' : !input('branch-name').value.trim() ? 'Enter a branch name.' : ''));
+  disable('ai-message', blocked || (!stagedFiles().length ? 'Stage the files to describe first.' : ''));
+  disable('ai-explain', unavailable || (!stagedFiles().length ? 'Stage the files to explain first.' : ''));
+  disable('undo-commit', blocked || (!repo?.head ? 'There is no commit yet.' : ''));
+  for (const id of ['operation-continue', 'operation-abort']) button(id).disabled = busy;
   disable('remote-submit', unavailable || (!select('remote-select').value ? 'Choose a configured remote.' : ''));
   select('scope').disabled = busy || !repo;
   input('history-search').disabled = busy || !repo;
@@ -258,8 +313,12 @@ function renderInfo() {
   get('staged-count').textContent = stagedFiles().length + ' staged ' + (stagedFiles().length === 1 ? 'file' : 'files');
   get('version-controls').hidden = !repo?.versioning; get('enable-versioning').hidden = !repo || repo.versioning;
   get('repo-version').textContent = repo?.version ? 'v' + repo.version : 'none';
-  const notes = repo ? explainState(repo) : []; get('git-hint').textContent = notes.join(' '); get('git-hint').hidden = !notes.length;
-  get('operation-note').textContent = repo?.operation ? 'Finish ' + repo.operation + ' in the terminal, then refresh.' : '';
+  const notes = repo ? [...explainState(repo), ...health] : []; get('git-hint').textContent = notes.join(' '); get('git-hint').hidden = !notes.length;
+  get('operation-note').textContent = repo?.operation === 'unresolved conflicts' ? 'Resolve each conflicted file below.' : repo?.operation ? 'A ' + repo.operation + ' is in progress.' : '';
+  get('operation-continue').hidden = !repo?.operation || repo.operation === 'unresolved conflicts'; get('operation-abort').hidden = !repo?.operation;
+  get('publish').hidden = !repo?.head || !!repo.remotes.length;
+  const trying = !!repo?.branch?.startsWith('try/');
+  get('experiment-button').hidden = trying; get('experiment-keep').hidden = !trying; get('experiment-discard').hidden = !trying;
 }
 function scopeOptions() {
   const control = select('scope'); control.replaceChildren(option('', 'All branches'));
@@ -401,7 +460,7 @@ async function loadGraph(more = false) {
 async function refresh() {
   if (!repo) return;
   get('working-diff').replaceChildren();
-  epoch++; repo = await api.status(repo.id); renderInfo(); renderFiles(); await loadGraph();
+  epoch++; repo = await api.status(repo.id); renderInfo(); renderFiles(); loadHealth(); await loadGraph();
   await refreshWorkingPreview();
   notify('Refreshed ' + new Date().toLocaleTimeString());
 }
@@ -470,6 +529,7 @@ async function openPath(path: string, load = api.open) {
   checked.staged.clear(); checked.unstaged.clear(); input('branch-name').value = '';
   input('history-search').value = ''; searchMatches = [];
   save('recentRepositories', JSON.stringify([repo.root, ...recentRepositories().filter(path => path !== repo!.root)].slice(0, 8)));
+  health = []; loadHealth();
   save('lastRepository', repo.root); restoreDraft(); renderInfo(); renderFiles();
   get('working-diff').replaceChildren(); get('working-path').textContent = 'Select a file to review its diff.';
   get('error').hidden = true; await loadGraph(); notify('Opened ' + repo.root);
@@ -569,6 +629,144 @@ function toggleChanges() {
   button('changes-button').setAttribute('aria-pressed', String(!get('changes').hidden));
   if (!get('changes').hidden) { renderFiles(); input('summary').focus(); }
 }
+let health: string[] = [];
+function loadHealth() {
+  const id = repo?.id; if (id === undefined) return;
+  api.health(id).then(notes => { if (repo?.id === id) { health = notes; renderInfo(); } }).catch(() => { /* Warnings are advisory; never block the user. */ });
+}
+async function publish() {
+  if (!repo || busy) return;
+  const name = repo.root.split('/').filter(Boolean).pop();
+  if (!await confirm(`Create a private GitHub repository named "${name}" and upload this code? This needs the GitHub CLI (gh), signed in once with "gh auth login".`, { title: 'Publish to GitHub', kind: 'info' })) return;
+  await mutate('Publishing to GitHub…', () => api.publish(repo!.id, repo!.token));
+}
+async function finishExperiment(keep: boolean) {
+  if (!repo || busy) return;
+  const text = keep ? 'Keep this experiment? Its commits are merged into the branch it started from. Commit its changes first.' : 'Throw this experiment away? Its commits and changes are deleted and you return to where you started. A checkpoint is saved first.';
+  if (!await confirm(text, { title: keep ? 'Keep experiment' : 'Throw away experiment', kind: keep ? 'info' : 'warning' })) return;
+  await mutate(keep ? 'Keeping experiment…' : 'Throwing experiment away…', () => api.finishExperiment(repo!.id, keep, repo!.token));
+}
+async function abortOperation() {
+  if (!repo?.operation || busy) return;
+  if (!await confirm('Abort and go back to how everything was before it started? Conflict choices made so far are lost.', { title: 'Abort', kind: 'warning' })) return;
+  await mutate('Aborting…', () => api.finishOperation(repo!.id, true, repo!.token));
+}
+async function undoCommit() {
+  if (!repo || busy) return;
+  if (!await confirm('Undo the last commit? Nothing is lost: its changes go back to Staged so you can fix them and commit again. Pushed commits cannot be undone this way.', { title: 'Undo last commit', kind: 'warning' })) return;
+  await mutate('Undoing last commit…', () => api.undoCommit(repo!.id, repo!.token));
+}
+
+function recordUsage(answer: Answer) {
+  let usage = { calls: 0, input: 0, output: 0 };
+  try { usage = { ...usage, ...JSON.parse(stored('aiUsage') ?? '{}') }; } catch { /* Start a fresh log. */ }
+  usage.calls++; usage.input += answer.inputTokens; usage.output += answer.outputTokens; save('aiUsage', JSON.stringify(usage));
+  get('ai-usage').textContent = `This answer: ${answer.inputTokens + answer.outputTokens} tokens, about $${aiCost(answer.inputTokens, answer.outputTokens).toFixed(3)}. All GitGUI AI requests: ${usage.calls}, about $${aiCost(usage.input, usage.output).toFixed(2)}.`;
+}
+function showKeyForm() {
+  get('ai-title').textContent = 'Connect Claude'; get('key-form').hidden = false; get('ai-answer').textContent = ''; get('ai-usage').textContent = '';
+  input('api-key').value = ''; if (!dialog('ai-dialog').open) dialog('ai-dialog').showModal(); input('api-key').focus();
+}
+async function saveKey() {
+  try { await api.setApiKey(input('api-key').value); input('api-key').value = ''; get('key-form').hidden = true; get('ai-answer').textContent = 'Key saved. Run your request again.'; }
+  catch (error) { report(error); }
+}
+/** Asks Claude; returns null after showing the key form when no working key is set. */
+async function ask(request: 'explain' | 'message' | 'conflict', scope: string): Promise<Answer | null> {
+  try { const answer = await api.ask(repo!.id, request, scope); recordUsage(answer); return answer; }
+  catch (error) { if (/No Claude API key|x-api-key|authentication/i.test(String(error))) { showKeyForm(); notify('Add a Claude API key to use AI features'); return null; } throw error; }
+}
+async function explainChanges(scope: string, title: string) {
+  if (!repo || busy) return;
+  await run('Claude is reading the changes…', async () => {
+    const answer = await ask(scope.startsWith('conflict:') ? 'conflict' : 'explain', scope); if (!answer) return;
+    get('ai-title').textContent = title; get('key-form').hidden = true; get('ai-answer').textContent = answer.text;
+    if (!dialog('ai-dialog').open) dialog('ai-dialog').showModal(); notify('Ready');
+  });
+}
+async function writeMessage() {
+  if (!repo || busy) return;
+  await run('Claude is writing the commit message…', async () => {
+    const answer = await ask('message', 'staged'); if (!answer) return;
+    const [summary, ...rest] = answer.text.split('\n');
+    input('summary').value = summary.trim(); get<HTMLTextAreaElement>('body').value = rest.join('\n').trim(); saveDraft();
+    notify('Message drafted. Read it before committing.');
+  });
+}
+
+let sessionFiles: (SessionFile & { risk: string | null })[] = [];
+const STATUS_WORDS: Record<string, string> = { A: 'new', M: 'edited', D: 'deleted', T: 'type changed' };
+function renderSession(session: Session, notes: string[]) {
+  sessionFiles = sortByRisk(session.files);
+  const since = session.checkpoint ? `checkpoint "${session.checkpoint.label}" (${new Date(session.checkpoint.timestamp * 1000).toLocaleString()})` : 'your last commit';
+  get('session-note').textContent = `${sessionFiles.length} file${sessionFiles.length === 1 ? '' : 's'} changed since ${since}. Risky files come first. Undo puts a file back; a checkpoint is saved first, so undo can be undone too.`;
+  get('health-list').replaceChildren(...notes.map(note => { const item = document.createElement('li'); item.textContent = note; return item; }));
+  const items = sessionFiles.map(file => {
+    const item = document.createElement('li');
+    const title = document.createElement('strong'); title.textContent = file.path;
+    const meta = document.createElement('span'); meta.className = file.risk ? 'risk' : 'muted'; meta.textContent = `${STATUS_WORDS[file.status] ?? file.status} · +${file.added} −${file.deleted}` + (file.risk ? ' · ⚠ ' + file.risk : '');
+    const actions = document.createElement('span'); actions.className = 'row';
+    const diff = document.createElement('button'); diff.type = 'button'; diff.textContent = 'Diff'; diff.setAttribute('aria-label', 'Show changes in ' + file.path);
+    diff.onclick = () => { if (repo && !busy) void run('Reading diff…', async () => { previewInto('session-diff', await api.sessionDiff(repo!.id, file.path)); notify('Ready'); }); };
+    const undo = document.createElement('button'); undo.type = 'button'; undo.textContent = 'Undo'; undo.setAttribute('aria-label', 'Undo changes to ' + file.path);
+    undo.onclick = () => { void undoSession([file.path]); };
+    actions.append(diff, undo); item.append(title, meta, actions); return item;
+  });
+  if (!items.length) { const empty = document.createElement('li'); empty.className = 'muted'; empty.textContent = 'Nothing changed.'; items.push(empty); }
+  get('session-list').replaceChildren(...items);
+  button('session-undo-all').disabled = !sessionFiles.length; button('session-explain').disabled = !sessionFiles.length;
+}
+async function openSession() {
+  if (!repo || busy) return;
+  await run('Reviewing changes…', async () => {
+    const [session, notes] = await Promise.all([api.session(repo!.id), api.health(repo!.id)]);
+    renderSession(session, notes); get('session-diff').replaceChildren();
+    if (!dialog('session-dialog').open) dialog('session-dialog').showModal(); notify('Ready');
+  });
+}
+async function undoSession(paths: string[]) {
+  if (!repo || busy || !paths.length) return;
+  if (paths.length > 1 && !await confirm(`Undo all ${paths.length} changed files? A checkpoint of the current files is saved first.`, { title: 'Undo all', kind: 'warning' })) return;
+  await mutate(paths.length === 1 ? 'Undoing ' + paths[0] + '…' : 'Undoing all changes…', () => api.undoFiles(repo!.id, paths, repo!.token));
+  if (dialog('session-dialog').open) await openSession();
+}
+
+const STARTER_RULES = `# Rules for AI agents
+- Make one small change at a time and explain what you changed in plain English.
+- Never delete, skip, or weaken tests to make them pass; fix the code instead.
+- Never write API keys, passwords, or tokens into code; read them from an ignored .env file.
+- Ask before adding a dependency, and only use well-known, maintained packages.
+- Keep files under about 500 lines; split large files into modules.
+- Run the tests before saying you are done, and report any that fail.
+- Never use git commit --no-verify, force-push, or rewrite history.
+- Do not change files unrelated to the task.`;
+async function openRules() {
+  if (!repo || busy) return;
+  await run('Loading AI rules…', async () => { get<HTMLTextAreaElement>('rules-text').value = await api.agentRules(repo!.id); dialog('rules-dialog').showModal(); notify('Ready'); });
+}
+async function saveRules() {
+  if (!repo || busy) return;
+  await run('Saving AI rules…', async () => { await api.saveAgentRules(repo!.id, get<HTMLTextAreaElement>('rules-text').value); dialog('rules-dialog').close(); await refresh(); notify('Rules saved to AGENTS.md'); }, true);
+}
+
+let running = false;
+async function startRun() {
+  if (!repo || running) return;
+  running = true; button('run-start').disabled = true; button('run-stop').disabled = false; button('run-button').textContent = 'Running…';
+  const lines: string[] = []; let queued = false; get('run-hint').hidden = true;
+  const output = get('run-output');
+  const append = (line: string) => {
+    lines.push(line); if (lines.length > 2000) lines.shift();
+    if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; output.textContent = lines.join('\n'); output.scrollTop = output.scrollHeight; }); }
+  };
+  try {
+    const status = await api.runProject(repo.id, append);
+    append('— stopped: ' + status);
+    if (!/exit status: 0|signal: 15/.test(status)) { get('run-hint').textContent = explainCrash(lines.join('\n')) ?? 'The app stopped with an error. Show the last lines above to your AI and ask it to fix the first error.'; get('run-hint').hidden = false; }
+  } catch (error) { append(String(error)); }
+  finally { running = false; button('run-start').disabled = false; button('run-stop').disabled = true; button('run-button').textContent = 'Run'; }
+}
+
 function renderFiles() {
   const list = get('file-list'); list.replaceChildren();
   const groups: [string, FileInfo[], boolean | null][] = [
@@ -609,7 +807,17 @@ function renderFiles() {
       }
       const kind = document.createElement('span'); kind.className = 'file-kind'; kind.textContent = file.submodule ? 'S' : file.conflicted ? 'U' : file.untracked ? '?' : staged ? file.index : file.worktree; row.append(kind);
       const nameButton = document.createElement('button'); nameButton.type = 'button'; nameButton.textContent = (file.oldPath ? file.oldPath + ' → ' : '') + file.path; nameButton.title = nameButton.textContent;
-      nameButton.addEventListener('click', () => { void showWorkingFile(file, !!staged); }); row.append(nameButton); list.append(row);
+      nameButton.addEventListener('click', () => { void showWorkingFile(file, !!staged); }); row.append(nameButton);
+      if (staged === null) {
+        for (const [label, choice, tip] of [['Keep ours', 'ours', 'Use the version from your current branch (during a rebase: the branch you rebase onto)'], ['Keep theirs', 'theirs', 'Use the incoming version'], ['Mark fixed', 'resolved', 'You edited the file and removed the <<<<<<< ======= >>>>>>> markers']] as const) {
+          const action = document.createElement('button'); action.type = 'button'; action.textContent = label; action.title = tip; action.disabled = busy;
+          action.setAttribute('aria-label', label + ' for ' + file.path);
+          action.addEventListener('click', () => { if (repo) void mutate('Resolving ' + file.path + '…', () => api.resolveConflict(repo!.id, file.id, choice, repo!.token)); }); row.append(action);
+        }
+        const explain = document.createElement('button'); explain.type = 'button'; explain.textContent = 'Explain'; explain.title = 'Let Claude explain both sides of this conflict'; explain.disabled = busy;
+        explain.addEventListener('click', () => { void explainChanges('conflict:' + file.id, 'Conflict in ' + file.path); }); row.append(explain);
+      }
+      list.append(row);
     }
   }
   renderInfo();
@@ -716,6 +924,27 @@ button('switch-branch').onclick = () => { if (!repo) return; const id = select('
 button('create-branch').onclick = () => { if (!repo) return; const name = input('branch-name').value.trim(); const oid = select('branch-start').value === 'selected' ? selected : null; dialog('branches').close(); void mutate('Creating branch…', () => api.createBranch(repo!.id, name, oid, repo!.token)); };
 select('remote-select').onchange = remoteUrl;
 get<HTMLFormElement>('remote-form').onsubmit = event => { event.preventDefault(); if (!repo || busy) return; const remoteId = select('remote-select').value; dialog('remote-dialog').close(); if (remoteAction === 'fetch') void mutate('Fetching remote…', () => api.fetch(repo!.id, remoteId, progressReporter())); else void mutate('Publishing current branch…', () => api.push(repo!.id, remoteId, repo!.token, progressReporter())); };
+button('publish').onclick = () => { void publish(); };
+button('session-button').onclick = () => { void openSession(); };
+button('session-explain').onclick = () => { void explainChanges('session', 'What the AI changed'); };
+button('session-undo-all').onclick = () => { void undoSession(sessionFiles.map(file => file.path)); };
+button('experiment-button').onclick = () => { if (repo && !busy) { input('experiment-name').value = ''; dialog('experiment-dialog').showModal(); } };
+get<HTMLFormElement>('experiment-form').onsubmit = event => { event.preventDefault(); const name = input('experiment-name').value.trim(); dialog('experiment-dialog').close(); if (repo && name) void mutate('Starting experiment…', () => api.startExperiment(repo!.id, name, repo!.token)); };
+button('experiment-keep').onclick = () => { void finishExperiment(true); };
+button('experiment-discard').onclick = () => { void finishExperiment(false); };
+button('operation-continue').onclick = () => { if (repo) void mutate('Continuing ' + repo.operation + '…', () => api.finishOperation(repo!.id, false, repo!.token)); };
+button('operation-abort').onclick = () => { void abortOperation(); };
+button('undo-commit').onclick = () => { void undoCommit(); };
+button('ai-message').onclick = () => { void writeMessage(); };
+button('ai-explain').onclick = () => { void explainChanges('staged', 'Staged changes explained'); };
+get<HTMLFormElement>('key-form').onsubmit = event => { event.preventDefault(); void saveKey(); };
+button('run-button').onclick = () => { if (repo) dialog('run-dialog').showModal(); };
+button('run-start').onclick = () => { void startRun(); };
+button('run-stop').onclick = () => { void api.stopProject().catch(report); };
+button('rules-button').onclick = () => { void openRules(); };
+button('rules-starter').onclick = () => { const text = get<HTMLTextAreaElement>('rules-text'); if (!text.value.includes(STARTER_RULES.split('\n')[0])) text.value = (text.value.trim() ? text.value.trimEnd() + '\n\n' : '') + STARTER_RULES; };
+get<HTMLFormElement>('rules-form').onsubmit = event => { event.preventDefault(); void saveRules(); };
+button('help-button').onclick = () => dialog('help-dialog').showModal();
 window.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && repo) { event.preventDefault(); input('history-search').focus(); input('history-search').select(); }
   if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key) && !get('details').hidden) { event.preventDefault(); moveDetailFile(event.key === 'ArrowDown' ? 1 : -1); }
@@ -735,6 +964,7 @@ if (isTauri()) {
     const path = await api.startup() ?? stored('lastRepository');
     if (path) await openPath(path); else notify('Open a repository to begin.');
   });
+  if (!stored('onboarded')) { save('onboarded', '1'); dialog('help-dialog').showModal(); }
 } else {
   get('welcome').querySelector('p')!.textContent = 'Launch the GitGUI desktop app to work with local repositories.';
   button('welcome-open').disabled = true; button('open-repo').disabled = true; button('init-repo').disabled = true; notify('Desktop runtime required');

@@ -17,6 +17,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod vibe;
+pub use vibe::{Session, SessionFile};
+
 pub type Result<T> = std::result::Result<T, String>;
 pub type Progress = Arc<dyn Fn(String) + Send + Sync>;
 const DATA_LIMIT: usize = 16 * 1024 * 1024;
@@ -340,6 +343,9 @@ fn execute(
         "GIT_TRACE_CURL",
         "GIT_CURL_VERBOSE",
         "GIT_TRACE_PACKET",
+        // The packaged app's libraries break hooks and test commands run by Git.
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
     ] {
         command.env_remove(variable);
     }
@@ -1000,8 +1006,13 @@ impl Repository {
     /// Tree of the whole working copy (tracked and untracked, minus ignored files) via a throwaway index.
     fn snapshot(&self) -> Result<String> {
         let temp = self.metadata("gitgui-checkpoint-index")?;
-        match fs::copy(self.metadata("index")?, &temp) {
-            Ok(_) => {}
+        let index = self.metadata("index")?;
+        match fs::copy(&index, &temp) {
+            // Keep the index time so Git still re-reads files edited in the same second (racy-git check).
+            Ok(_) => fs::metadata(&index)
+                .and_then(|m| m.modified())
+                .and_then(|time| File::options().write(true).open(&temp)?.set_modified(time))
+                .map_err(|e| format!("Cannot prepare the checkpoint: {e}"))?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 let _ = fs::remove_file(&temp);
             }
@@ -1216,20 +1227,7 @@ impl Repository {
                 }
             }
         }
-        let mut operation = None;
-        for (name, label) in [
-            ("MERGE_HEAD", "merge"),
-            ("rebase-merge", "rebase"),
-            ("rebase-apply", "rebase"),
-            ("CHERRY_PICK_HEAD", "cherry-pick"),
-            ("REVERT_HEAD", "revert"),
-            ("sequencer", "sequencer"),
-        ] {
-            if self.metadata(name)?.exists() {
-                operation = Some(label.into());
-                break;
-            }
-        }
+        let mut operation = self.in_progress()?.map(str::to_owned);
         if files.iter().any(|f| f.conflicted) {
             operation = Some("unresolved conflicts".into());
         }
@@ -1281,6 +1279,21 @@ impl Repository {
             versioning: crate::version::enabled(&self.metadata("hooks")?),
         })
     }
+    fn in_progress(&self) -> Result<Option<&'static str>> {
+        for (name, label) in [
+            ("MERGE_HEAD", "merge"),
+            ("rebase-merge", "rebase"),
+            ("rebase-apply", "rebase"),
+            ("CHERRY_PICK_HEAD", "cherry-pick"),
+            ("REVERT_HEAD", "revert"),
+            ("sequencer", "sequencer"),
+        ] {
+            if self.metadata(name)?.exists() {
+                return Ok(Some(label));
+            }
+        }
+        Ok(None)
+    }
     fn checked(&mut self, token: &str) -> Result<RepoInfo> {
         let info = self.info()?;
         if info.token != token {
@@ -1291,7 +1304,9 @@ impl Repository {
     }
     fn require_normal(&self, info: &RepoInfo) -> Result<()> {
         if let Some(operation) = &info.operation {
-            Err(format!("Finish the {operation} in your terminal, then refresh. This operation is not completed automatically."))
+            Err(format!(
+                "Finish the {operation} first: Continue or Abort it in Changes."
+            ))
         } else {
             Ok(())
         }

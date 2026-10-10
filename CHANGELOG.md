@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0 — 2026-10-11
+
+- Review AI changes: every file changed since your last checkpoint or commit, riskiest first, with per-file Undo, Undo all, and diffs.
+- Claude (claude-opus-5-5) explains changes and conflicts and writes commit messages; usage and cost are logged.
+- Health warnings for huge files, deleted tests, new dependencies, piles of TODOs, unpushed work, and missing backups.
+- Experiments: Try something risky, then Keep it or Throw it away.
+- Publish to GitHub (private repository through the GitHub CLI).
+- Guided conflicts: Keep ours, Keep theirs, Mark fixed, Explain, then Continue or Abort.
+- AI rules editor for AGENTS.md with starter rules, linked from CLAUDE.md.
+- Run the project from GitGUI with live output and crash hints.
+- Undo last commit, Git jargon tooltips, a first-run tour and glossary, and a GitHub release workflow.
+- Fix checkpoints missing same-size edits made within a second of the last index update.
+
 ## 0.5.0 — 2026-10-11
 
 - Add `npm run install:app`: detects the operating system, builds GitGUI, removes older installed versions, and installs the new one (Linux tested; macOS and Windows untested).

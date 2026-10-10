@@ -1,6 +1,8 @@
+pub mod assist;
 pub mod git;
+pub mod runner;
 pub mod version;
-use git::{Backend, Checkpoint, CommitDetails, GraphPage, Preview, Progress, RepoInfo};
+use git::{Backend, Checkpoint, CommitDetails, GraphPage, Preview, Progress, RepoInfo, Session};
 use std::sync::{Arc, Mutex};
 use tauri::{ipc::Channel, State};
 
@@ -232,6 +234,145 @@ async fn push_remote(
     .await
 }
 
+#[tauri::command]
+async fn get_session(repo_id: u64, state: State<'_, AppState>) -> git::Result<Session> {
+    task(state, false, move |b| b.session(repo_id)).await
+}
+#[tauri::command]
+async fn get_session_diff(
+    repo_id: u64,
+    path: String,
+    state: State<'_, AppState>,
+) -> git::Result<Preview> {
+    task(state, false, move |b| b.session_diff(repo_id, &path)).await
+}
+#[tauri::command]
+async fn undo_files(
+    repo_id: u64,
+    paths: Vec<String>,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| b.undo_files(repo_id, &paths, &token)).await
+}
+#[tauri::command]
+async fn get_health(repo_id: u64, state: State<'_, AppState>) -> git::Result<Vec<String>> {
+    task(state, false, move |b| b.health(repo_id)).await
+}
+#[tauri::command]
+async fn start_experiment(
+    repo_id: u64,
+    name: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.start_experiment(repo_id, &name, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn finish_experiment(
+    repo_id: u64,
+    keep: bool,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.finish_experiment(repo_id, keep, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn resolve_conflict(
+    repo_id: u64,
+    file_id: String,
+    choice: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.resolve_conflict(repo_id, &file_id, &choice, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn finish_operation(
+    repo_id: u64,
+    abort: bool,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.finish_operation(repo_id, abort, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn undo_commit(
+    repo_id: u64,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| b.undo_commit(repo_id, &token)).await
+}
+#[tauri::command]
+async fn publish_github(
+    repo_id: u64,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| b.publish_github(repo_id, &token)).await
+}
+#[tauri::command]
+async fn get_agent_rules(repo_id: u64, state: State<'_, AppState>) -> git::Result<String> {
+    task(state, false, move |b| b.agent_rules(repo_id)).await
+}
+#[tauri::command]
+async fn save_agent_rules(
+    repo_id: u64,
+    rules: String,
+    state: State<'_, AppState>,
+) -> git::Result<()> {
+    task(state, true, move |b| b.save_agent_rules(repo_id, &rules)).await
+}
+#[tauri::command]
+async fn ask_claude(
+    repo_id: u64,
+    request: String,
+    scope: String,
+    state: State<'_, AppState>,
+) -> git::Result<assist::Answer> {
+    let changes = task(state, false, move |b| b.change_text(repo_id, &scope)).await?;
+    // The Claude request runs outside the repository lock so Git actions stay responsive.
+    tauri::async_runtime::spawn_blocking(move || assist::ask(&request, &changes))
+        .await
+        .map_err(|e| format!("Claude task failed: {e}"))?
+}
+#[tauri::command]
+async fn set_api_key(key: String) -> git::Result<()> {
+    assist::save_key(&key)
+}
+#[tauri::command]
+async fn run_project(
+    repo_id: u64,
+    on_output: Channel<String>,
+    state: State<'_, AppState>,
+) -> git::Result<String> {
+    let root = task(state, false, move |b| b.root(repo_id)).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        runner::run(&root, |line| {
+            let _ = on_output.send(line);
+        })
+    })
+    .await
+    .map_err(|e| format!("Run task failed: {e}"))?
+}
+#[tauri::command]
+fn stop_project() -> git::Result<()> {
+    runner::stop()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -256,7 +397,23 @@ pub fn run() {
             switch_branch,
             fetch_remote,
             pull_remote,
-            push_remote
+            push_remote,
+            get_session,
+            get_session_diff,
+            undo_files,
+            get_health,
+            start_experiment,
+            finish_experiment,
+            resolve_conflict,
+            finish_operation,
+            undo_commit,
+            publish_github,
+            get_agent_rules,
+            save_agent_rules,
+            ask_claude,
+            set_api_key,
+            run_project,
+            stop_project
         ])
         .run(tauri::generate_context!())
         .expect("Could not run GitGUI");

@@ -704,3 +704,120 @@ fn change_summaries_are_plain_english() {
         "4 files changed (+3 −6): a, b, img.png and 1 more"
     );
 }
+
+#[test]
+fn session_review_undoes_single_files_back_to_the_checkpoint() {
+    let f = Fixture::new();
+    f.commit("a.txt", "one\n", "base");
+    let (mut b, info) = f.open();
+    f.write("a.txt", b"two\n");
+    f.write("new.txt", b"created\n");
+    let session = b.session(info.id).unwrap();
+    assert!(session.checkpoint.is_none());
+    let mut changed: Vec<_> = session
+        .files
+        .iter()
+        .map(|f| (f.path.as_str(), f.status.as_str(), f.added))
+        .collect();
+    changed.sort();
+    assert_eq!(changed, [("a.txt", "M", 1), ("new.txt", "A", 1)]);
+    assert!(b
+        .session_diff(info.id, "a.txt")
+        .unwrap()
+        .text
+        .contains("+two"));
+    let info = b.status(info.id).unwrap();
+    let info = b
+        .undo_files(info.id, &["new.txt".into()], &info.token)
+        .unwrap();
+    assert!(!f.root.join("new.txt").exists());
+    b.undo_files(info.id, &["a.txt".into()], &info.token)
+        .unwrap();
+    assert_eq!(fs::read_to_string(f.root.join("a.txt")).unwrap(), "one\n");
+    assert!(b.session(info.id).unwrap().files.is_empty());
+    assert!(b
+        .undo_files(info.id, &["../x".into()], &info.token)
+        .is_err());
+    let saved = b.checkpoints(info.id).unwrap();
+    assert!(
+        saved.iter().any(|c| c.label == "Before undoing a.txt"),
+        "undo is itself undoable"
+    );
+}
+
+#[test]
+fn experiments_can_be_kept_or_thrown_away() {
+    let f = Fixture::new();
+    f.commit("a.txt", "one\n", "base");
+    let (mut b, info) = f.open();
+    let info = b
+        .start_experiment(info.id, "New Login!", &info.token)
+        .unwrap();
+    assert_eq!(info.branch.as_deref(), Some("try/new-login"));
+    f.commit("a.txt", "two\n", "experiment");
+    let info = b.status(info.id).unwrap();
+    let info = b.finish_experiment(info.id, true, &info.token).unwrap();
+    assert_eq!(info.branch.as_deref(), Some("main"));
+    assert_eq!(fs::read_to_string(f.root.join("a.txt")).unwrap(), "two\n");
+    assert_eq!(cmd(&f.root, &["branch", "--list", "try/*"]), "");
+
+    let info = b.start_experiment(info.id, "risky", &info.token).unwrap();
+    f.commit("a.txt", "broken\n", "bad idea");
+    f.write("junk.txt", b"x");
+    let info = b.status(info.id).unwrap();
+    let info = b.finish_experiment(info.id, false, &info.token).unwrap();
+    assert_eq!(info.branch.as_deref(), Some("main"));
+    assert_eq!(fs::read_to_string(f.root.join("a.txt")).unwrap(), "two\n");
+    assert!(!f.root.join("junk.txt").exists());
+    assert_eq!(cmd(&f.root, &["branch", "--list", "try/*"]), "");
+    assert!(b.finish_experiment(info.id, false, &info.token).is_err());
+}
+
+#[test]
+fn conflicts_are_resolved_per_file_and_the_merge_continues() {
+    let f = Fixture::new();
+    f.commit("a.txt", "base\n", "base");
+    cmd(&f.root, &["switch", "-q", "-c", "other"]);
+    f.commit("a.txt", "theirs\n", "theirs");
+    cmd(&f.root, &["switch", "-q", "main"]);
+    f.commit("a.txt", "ours\n", "ours");
+    let _ = Command::new("git")
+        .current_dir(&f.root)
+        .args(["merge", "other"])
+        .output()
+        .unwrap();
+    let (mut b, info) = f.open();
+    let file = info.files.iter().find(|x| x.conflicted).unwrap().id.clone();
+    assert!(b
+        .resolve_conflict(info.id, &file, "resolved", &info.token)
+        .unwrap_err()
+        .contains("markers"));
+    let info = b
+        .resolve_conflict(info.id, &file, "theirs", &info.token)
+        .unwrap();
+    assert_eq!(info.operation.as_deref(), Some("merge"));
+    let info = b.finish_operation(info.id, false, &info.token).unwrap();
+    assert_eq!(info.operation, None);
+    assert_eq!(
+        fs::read_to_string(f.root.join("a.txt")).unwrap(),
+        "theirs\n"
+    );
+}
+
+#[test]
+fn undo_commit_keeps_changes_staged_and_refuses_pushed_or_first_commits() {
+    let f = Fixture::new();
+    f.commit("a.txt", "one\n", "base");
+    let (mut b, info) = f.open();
+    assert!(b
+        .undo_commit(info.id, &info.token)
+        .unwrap_err()
+        .contains("first commit"));
+    f.commit("a.txt", "two\n", "second");
+    cmd(&f.root, &["tag", "v9.9.9"]);
+    let info = b.status(info.id).unwrap();
+    let info = b.undo_commit(info.id, &info.token).unwrap();
+    assert!(info.files.iter().any(|x| x.index == "M"));
+    assert_eq!(cmd(&f.root, &["log", "--format=%s"]), "base");
+    assert_eq!(cmd(&f.root, &["tag"]), "");
+}

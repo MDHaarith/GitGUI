@@ -81,6 +81,33 @@ the window (at most every 10 minutes, only when files changed) and keeps the lat
 keeps files created afterwards. A hint bar and error messages explain conflicts,
 detached HEAD, and sync problems in plain English.
 
+**Review AI changes** lists every file changed since your last saved checkpoint
+(or the last commit), riskiest first: possible secrets, removed tests, deletions,
+dependency and config changes, and large edits. Undo one file or all of them; a
+checkpoint is saved first. Health warnings in the hint bar flag files over 800
+lines, deleted tests, new npm dependencies, three or more new TODOs, commits left
+unpushed for a day, and code that exists only on this computer.
+
+**Claude** explains staged changes, the AI session, or a conflicted file, and
+**Write message with AI** drafts the commit message. Requests go to
+`claude-opus-5-5` through `curl` with server-side fallback enabled
+(`fallbacks: "default"`); the key comes from `ANTHROPIC_API_KEY`, the key saved in
+the app (`~/.config/com.gitgui.app/anthropic-key`, mode 0600), or `ant auth`.
+Changes over about 100k tokens are refused rather than cut. The dialog shows each
+answer's tokens and cost and a running total.
+
+**Try something risky** starts a `try/<name>` branch; **Keep it** merges it back
+with a merge commit, **Throw it away** deletes it after saving a checkpoint.
+**Publish to GitHub** runs `gh repo create --private --push`. Conflicted files get
+Keep ours, Keep theirs, Mark fixed (refused while markers remain), and Explain;
+Continue and Abort finish the merge, rebase, cherry-pick, or revert. **Undo last
+commit** moves an unpushed commit's changes back to Staged and deletes its version
+tag. **AI rules** edits `AGENTS.md` (with starter rules) and links it from
+`CLAUDE.md`. **Run** starts `git config gitgui.runCommand`, else `npm run dev`/
+`start`, `cargo run`, or a Python entry point, streams its output, and explains
+common crashes. **Help** shows the tour and a glossary; button tooltips explain
+Git terms.
+
 The app remembers the last selected repository, offers the eight most recently
 opened repositories, and keeps commit drafts locally for each repository.
 Git remains responsible for credential helpers, SSH agents, hooks, and signing.
@@ -201,10 +228,13 @@ env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE \
   2 MiB and 5,000 rendered lines, with an explicit truncation notice.
 - Pull requires a clean working tree and uses fast-forward only. Push sends only
   the current branch and never force-pushes or mirrors other refs.
-- Existing merge/rebase/cherry-pick/revert/conflict workflows must be completed
-  in the terminal. The app displays their state and prevents ordinary mutations.
-- Clone/init, hunk staging, stash management, history rewriting, conflict editing,
-  nested submodule operations, and Windows/macOS packaging are outside this release.
+- Conflicts are resolved per whole file (ours, theirs, or hand-edited); multi-commit
+  sequencer operations must be completed in the terminal.
+- Clone, hunk staging, stash management, history rewriting beyond undoing the last
+  unpushed commit, in-app conflict editing, and nested submodule operations are
+  outside this release. `.github/workflows/release.yml` builds Linux, macOS, and
+  Windows installers for each `v*` tag into a draft release (untested until the
+  repository is on GitHub).
 
 ## Dependency safety
 
