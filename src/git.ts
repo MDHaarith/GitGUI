@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 
 export interface RefInfo { id: string; name: string; fullName: string; kind: 'local' | 'remote' | 'tag'; target: string; isHead: boolean }
 export interface Commit { oid: string; shortOid: string; parents: string[]; subject: string; author: string; timestamp: number; shallow: boolean }
@@ -22,7 +22,7 @@ export const api = {
   commit: (repoId: number, message: string, token: string, detachedOk: boolean) => invoke<RepoInfo>('create_commit', { repoId, message, token, detachedOk }),
   createBranch: (repoId: number, name: string, oid: string | null, token: string) => invoke<RepoInfo>('create_branch', { repoId, name, oid, token }),
   switchBranch: (repoId: number, referenceId: string, token: string) => invoke<RepoInfo>('switch_branch', { repoId, referenceId, token }),
-  fetch: (repoId: number, remoteId: string) => invoke<RepoInfo>('fetch_remote', { repoId, remoteId }),
-  pull: (repoId: number, token: string) => invoke<RepoInfo>('pull_remote', { repoId, token }),
-  push: (repoId: number, remoteId: string | null, token: string) => invoke<RepoInfo>('push_remote', { repoId, remoteId, token }),
+  fetch: (repoId: number, remoteId: string, progress: (message: string) => void) => invoke<RepoInfo>('fetch_remote', { repoId, remoteId, onProgress: new Channel<string>(progress) }),
+  pull: (repoId: number, token: string, progress: (message: string) => void) => invoke<RepoInfo>('pull_remote', { repoId, token, onProgress: new Channel<string>(progress) }),
+  push: (repoId: number, remoteId: string | null, token: string, progress: (message: string) => void) => invoke<RepoInfo>('push_remote', { repoId, remoteId, token, onProgress: new Channel<string>(progress) }),
 };

@@ -1,8 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { layoutHistory } from './graph.ts';
+import { findCommits, layoutHistory } from './graph.ts';
 
 const commit = (oid: string, parents: string[] = []) => ({ oid, shortOid: oid, parents, subject: oid, author: 'Test', timestamp: 0, shallow: false });
+
+test('history search matches messages, authors, and full hashes without changing graph order', () => {
+  const commits = [{ ...commit('abc123'), subject: 'Fix parser', author: 'Ada' }, { ...commit('def456'), subject: 'Update docs', author: 'Grace' }];
+  assert.deepEqual(findCommits(commits, ' FIX '), ['abc123']);
+  assert.deepEqual(findCommits(commits, 'grace'), ['def456']);
+  assert.deepEqual(findCommits(commits, 'C123'), ['abc123']);
+  assert.deepEqual(findCommits(commits, '['), []);
+  assert.deepEqual(findCommits(commits, ' '), []);
+  assert.equal(commits.length, 2);
+});
 
 test('forks reconnect to the same ancestor and expose every merge parent', () => {
   const data = [commit('tip', ['merge']), commit('merge', ['main', 'feature']), commit('feature', ['base']), commit('main', ['base']), commit('base')];

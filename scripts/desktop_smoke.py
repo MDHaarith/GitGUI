@@ -88,6 +88,7 @@ with tempfile.TemporaryDirectory(prefix="gitgui-native-") as temporary:
     git(root, "switch", "main")
     remote = Path(temporary) / "remote.git"
     subprocess.run(["git", "init", "--bare", str(remote)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    git(remote, "config", "core.hooksPath", str(remote / "hooks"))
     git(root, "remote", "add", "origin", str(remote))
     expected = int(git(root, "rev-list", "--all", "--count"))
     try:
@@ -99,16 +100,42 @@ with tempfile.TemporaryDirectory(prefix="gitgui-native-") as temporary:
         idle()
         assert execute("return document.getElementById('history-rows').children.length") == expected
         assert execute("return document.querySelectorAll('#graph [data-node]').length") == expected
-        assert execute("return document.getElementById('details').open") is False
+        assert execute("return document.getElementById('details').hidden") is True
         wait("document.fonts.status === 'loaded'")
         assert execute("return [...document.fonts].some(f=>f.family==='Geist' && f.status==='loaded')")
         print("PASS native startup, real graph, offline fonts, hidden details", flush=True)
-        click("#details-button"); wait("document.getElementById('details').open"); idle()
+        execute("window.selectionNode=document.querySelector('#graph [data-node]'); window.selectionPath=document.querySelector('#graph path')")
+        fill("#history-search", "native test")
+        assert execute("return document.querySelectorAll('tr.search-match').length") == expected
+        fill("#history-search", initial[:12])
+        assert execute("return document.querySelector('tr.selected').dataset.oid") == initial
+        assert execute("return window.selectionNode===document.querySelector('#graph [data-node]') && window.selectionPath===document.querySelector('#graph path')")
+        fill("#history-search", "")
+        execute("document.querySelector('[data-oid=\"'+arguments[0]+'\"] button.subject').click()", git(root, "rev-parse", "HEAD"))
+        print("PASS native search by author/hash and retained graph elements", flush=True)
+        click("#details-button"); wait("!document.getElementById('details').hidden && document.getElementById('details').getAttribute('aria-busy')==='false'"); idle()
         assert execute("return document.getElementById('detail-parent').options.length") == 2
-        execute("document.getElementById('details').close()")
+        click("#detail-file-next"); wait("document.getElementById('details').getAttribute('aria-busy')==='false'")
+        assert execute("return document.getElementById('detail-file').selectedIndex") == 1
+        assert execute("return [...document.querySelectorAll('#detail-diff .line-number')].some(n=>n.textContent.trim())")
+        click("#close-details")
+        print("PASS native details alongside history and numbered file diffs", flush=True)
         (root / "stage-only.txt").write_text("staged from native UI\n")
         (root / "leave-untracked.txt").write_text("must stay untracked\n")
         click("#refresh"); idle(); click("#changes-button")
+        assert "Stage at least" in execute("return document.getElementById('commit-button').title")
+        execute("[...document.querySelectorAll('.file-row button')].find(b=>b.textContent.includes('stage-only.txt')).click()")
+        idle()
+        (root / "stage-only.txt").write_text("updated outside the app\n")
+        click("#refresh"); idle()
+        assert "updated outside the app" in execute("return document.getElementById('working-diff').textContent")
+        (root / "stage-only.txt").unlink()
+        click("#refresh"); idle()
+        assert execute("return document.getElementById('working-diff').textContent") == ""
+        assert execute("return document.getElementById('working-path').textContent").startswith("Select a file")
+        (root / "stage-only.txt").write_text("staged from native UI\n")
+        click("#refresh"); idle()
+        print("PASS native refreshed diffs and cleared previews for removed files", flush=True)
         execute("const rows=[...document.querySelectorAll('.file-row')]; const row=rows.find(r=>r.textContent.includes('stage-only.txt')); row.querySelector('input').click()")
         click('[data-stage-group="unstaged"]'); idle()
         assert execute("return document.getElementById('staged-count').textContent") == "1 staged file"
@@ -141,19 +168,39 @@ with tempfile.TemporaryDirectory(prefix="gitgui-native-") as temporary:
         choose("#branch-select", branch); click("#switch-branch"); idle()
         assert git(root, "branch", "--show-current") == "native-feature"
         print("PASS native branch creation and switching", flush=True)
-        click("#push"); wait("document.getElementById('remote-dialog').open"); click("#remote-submit"); idle()
+        remote_hook = remote / "hooks/pre-receive"
+        remote_hook.write_text("#!/bin/sh\necho 'native-progress 50%' >&2\nsleep 2\ncat >/dev/null\n")
+        remote_hook.chmod(0o755)
+        click("#push"); wait("document.getElementById('remote-dialog').open"); click("#remote-submit")
+        wait("!document.getElementById('operation-feedback').hidden && document.getElementById('status').textContent.includes('native-progress')")
+        assert execute("return document.getElementById('operation-progress').value") == 50
+        wait("document.getElementById('operation-elapsed').textContent !== '0s'")
+        assert "Wait for" in execute("return document.getElementById('fetch').title")
+        idle(); remote_hook.unlink()
         assert git(remote, "rev-parse", "refs/heads/native-feature") == git(root, "rev-parse", "HEAD")
         assert execute("return document.getElementById('error').hidden")
         click("#fetch"); wait("document.getElementById('remote-dialog').open"); click("#remote-submit"); idle()
         assert execute("return document.getElementById('error').hidden")
         print("PASS native branch publishing and fetch through the Rust bridge", flush=True)
+        other = Path(temporary) / "other-repository"
+        other.mkdir(); git(other, "init", "-b", "main")
+        git(other, "config", "user.name", "Native Test"); git(other, "config", "user.email", "native@example.invalid")
+        git(other, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "Other repository")
+        draft = execute("return document.getElementById('summary').value")
+        execute("localStorage.setItem('recentRepositories', JSON.stringify([arguments[0],arguments[1]]))", str(root), str(other))
+        click("#refresh"); idle()
+        choose("#recent-repos", str(other)); idle()
+        assert execute("return document.getElementById('history-rows').children.length") == 1
+        choose("#recent-repos", str(root)); idle()
+        assert execute("return document.getElementById('summary').value") == draft
+        print("PASS native recent-repository switching and preserved drafts", flush=True)
         execute("window.scrollTo(0,0); document.getElementById('history').scrollLeft=0")
         assert execute("return document.documentElement.scrollWidth <= innerWidth"), "App must not overflow horizontally"
         assert execute("return document.documentElement.scrollHeight <= innerHeight"), "Only history should scroll, not the whole app"
         markup = execute("return document.getElementById('app').outerHTML")
         (args.output / "desktop.html").write_text(markup)
         print("PASS native viewport geometry; captured the rendered app DOM", flush=True)
-        execute("localStorage.removeItem('lastRepository'); localStorage.removeItem(arguments[0])", "draft:" + str(root))
+        execute("localStorage.removeItem('lastRepository'); localStorage.removeItem('recentRepositories'); localStorage.removeItem(arguments[0])", "draft:" + str(root))
     finally:
         if session:
             request("DELETE", "/session/" + session)

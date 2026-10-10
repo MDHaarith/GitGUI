@@ -8,6 +8,11 @@ export interface LayoutRow {
 }
 export interface Layout { rows: LayoutRow[]; lanes: number; pending: Rail[] }
 
+export function findCommits(commits: Commit[], query: string): string[] {
+  const needle = query.trim().toLowerCase();
+  return needle ? commits.filter(commit => [commit.subject, commit.author, commit.oid].some(value => value.toLowerCase().includes(needle))).map(commit => commit.oid) : [];
+}
+
 export function layoutHistory(commits: Commit[]): Layout {
   const active: (string | null)[] = [];
   const colors: string[] = [];
