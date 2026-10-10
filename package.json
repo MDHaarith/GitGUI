@@ -1,7 +1,7 @@
 {
   "name": "gitgui",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "prebuild": "node scripts/version.mjs --check",
@@ -12,7 +12,8 @@
     "version": "node scripts/version.mjs",
     "version:check": "node scripts/version.mjs --check",
     "tauri": "tauri",
-    "prepare": "git config core.hooksPath .githooks"
+    "prepare": "git config core.hooksPath .githooks",
+    "install:app": "sh scripts/install.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.2",

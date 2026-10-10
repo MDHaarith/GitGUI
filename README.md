@@ -12,6 +12,22 @@ Open an existing repository or linked worktree, browse branches and merge parent
 inspect commit or working-tree diffs, stage/unstage whole files, create commits,
 create/switch local branches, and fetch/pull/push.
 
+## Install
+
+```sh
+npm install
+npm run install:app
+```
+
+The installer detects the operating system, builds GitGUI, removes every older
+installed version, and installs the new one:
+
+- **Linux:** `~/Applications/GitGUI/<version>`, a `current` symlink, and a
+  `gitgui.desktop` launcher. AppImageLauncher copies of GitGUI and their launchers
+  are removed too. A running GitGUI keeps the old version until you close it.
+- **macOS:** `/Applications/GitGUI.app` (untested).
+- **Windows (Git Bash):** runs the NSIS installer silently (untested).
+
 ## Run the built app
 
 ```sh

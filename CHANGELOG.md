@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0 — 2026-10-11
+
+- Add `npm run install:app`: detects the operating system, builds GitGUI, removes older installed versions, and installs the new one (Linux tested; macOS and Windows untested).
+
 ## 0.4.1 — 2026-10-11
 
 - Offer Enable safeguards again in repositories that have older GitGUI hooks, so they get the secret scan and test gate.
