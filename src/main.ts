@@ -8,22 +8,27 @@ import './styles.css';
 const app = document.getElementById('app')!;
 app.innerHTML = `
   <header class="toolbar">
-    <span class="brand">gitgui</span>
-    <button id="open-repo">Open repository</button>
-    <button id="fetch" data-repo>Fetch</button><button id="pull" data-repo>Pull</button><button id="push" data-repo>Push</button>
-    <button id="refresh" data-repo>Refresh</button>
+    <span class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v10a4 4 0 0 0 4 4h1m5-14v2a5 5 0 0 1-5 5H7"/><circle cx="7" cy="5" r="2.5"/><circle cx="17" cy="5" r="2.5"/><circle cx="15" cy="19" r="2.5"/></svg>GitGUI</span>
+    <button class="secondary" id="open-repo">Open repository</button>
+    <div class="toolbar-actions"><button id="fetch" data-repo>Fetch</button><button id="pull" data-repo>Pull</button><button id="push" data-repo>Push</button>
+    <button id="refresh" data-repo>Refresh</button></div>
     <span class="repo-name" id="repo-name">No repository selected</span>
   </header>
   <nav class="scopebar" aria-label="History and repository actions">
     <label class="muted" for="scope">Scope</label><select id="scope" data-repo><option value="">All branches</option></select>
     <span class="spacer"></span>
-    <button id="branch-actions" data-repo>Branches</button><button id="details-button" data-repo>Details</button>
+    <button id="details-button" data-repo>Details</button>
     <button class="chip" id="changes-button" data-repo>Changes <span class="mono" id="changes-count">0</span></button>
   </nav>
   <div class="errorbar" id="error" role="alert" hidden><p id="error-text"></p><button id="dismiss-error" aria-label="Dismiss error">Close</button></div>
-  <main class="workspace">
+  <main class="workspace" id="workspace">
+    <aside class="branch-sidebar" id="branch-sidebar" aria-label="Branches and tags" hidden>
+      <header class="panelbar"><h2>Repository</h2><span class="spacer"></span><button id="branch-actions" aria-label="Manage branches" data-repo>Manage</button></header>
+      <nav class="ref-list" id="ref-list" aria-label="History scopes"></nav>
+    </aside>
+    <div class="repository-main">
     <section class="history" id="history" aria-label="Repository history">
-      <div class="empty" id="welcome"><h1>Your repository, in view.</h1><p>Follow branches and merges. Review changes. Make a commit.</p><button class="primary" id="welcome-open">Open repository</button></div>
+      <div class="empty" id="welcome"><span class="eyebrow">A clear view of your code</span><h1>Your repository,<br>in view.</h1><p>Follow branches and merges. Review changes.<br>Make your next commit with confidence.</p><button class="primary" id="welcome-open">Open repository <span aria-hidden="true">↗</span></button><span class="welcome-note">Local repositories. Offline fonts. Your workflow.</span></div>
       <div class="empty" id="empty-history" hidden><h1>No commits yet</h1><p>Open Changes to stage files and create the first commit.</p></div>
       <div class="graph-scene" id="graph-scene" hidden>
         <table class="history-table" aria-label="Commit graph and history">
@@ -47,6 +52,7 @@ app.innerHTML = `
         </form>
       </div>
     </section>
+    </div>
   </main>
   <footer class="footer"><span id="branch-status">No repository</span><span id="status" role="status" aria-live="polite">Ready</span></footer>
   <dialog id="details" aria-labelledby="detail-title">
@@ -147,6 +153,8 @@ function relative(timestamp: number) {
 }
 function renderInfo() {
   get('welcome').hidden = !!repo;
+  get('branch-sidebar').hidden = !repo;
+  get('workspace').classList.toggle('repository-open', !!repo);
   get('repo-name').textContent = repo ? repo.root.split('/').filter(Boolean).pop() + ' · ' + (repo.branch ?? 'detached HEAD') : 'No repository selected';
   get('repo-name').title = repo?.root ?? '';
   get('branch-status').textContent = repo ? (repo.branch ?? 'detached ' + short(repo.head ?? '')) + ' +' + repo.ahead + ' −' + repo.behind : 'No repository';
@@ -157,13 +165,35 @@ function renderInfo() {
 }
 function scopeOptions() {
   const control = select('scope'); control.replaceChildren(option('', 'All branches'));
+  const list = get('ref-list'); const scroll = list.scrollTop; list.replaceChildren();
+  const all = document.createElement('button'); all.type = 'button'; all.className = 'ref-item'; all.dataset.repo = ''; all.dataset.scope = '';
+  all.textContent = 'All branches'; all.setAttribute('aria-pressed', String(scope === null));
+  all.addEventListener('click', () => { void changeScope(null); }); list.append(all);
   for (const kind of ['local', 'remote', 'tag']) {
     const refs = page?.refs.filter(reference => reference.kind === kind) ?? [];
     if (!refs.length) continue;
     const group = document.createElement('optgroup'); group.label = kind === 'local' ? 'Local branches' : kind === 'remote' ? 'Remote branches' : 'Tags';
-    for (const ref of refs) group.append(option(ref.id, ref.name)); control.append(group);
+    const section = document.createElement('section'); section.className = 'ref-group';
+    const title = document.createElement('h3'); title.textContent = group.label + ' · ' + refs.length; section.append(title);
+    for (const ref of refs) {
+      group.append(option(ref.id, ref.name));
+      const item = document.createElement('button'); item.type = 'button'; item.className = 'ref-item'; item.dataset.repo = ''; item.dataset.scope = ref.id; item.dataset.kind = kind;
+      item.title = ref.fullName; item.setAttribute('aria-label', kind + ' ' + ref.name + (ref.isHead ? ', current branch' : ''));
+      item.setAttribute('aria-pressed', String(scope === ref.id));
+      const name = document.createElement('span'); name.className = 'ref-label'; name.textContent = ref.name; item.append(name);
+      if (ref.isHead) { const head = document.createElement('span'); head.className = 'ref-head'; head.textContent = 'HEAD'; item.append(head); }
+      item.addEventListener('click', () => { void changeScope(ref.id); }); section.append(item);
+    }
+    control.append(group); list.append(section);
   }
-  control.value = scope ?? '';
+  control.value = scope ?? ''; list.scrollTop = scroll;
+}
+async function changeScope(next: string | null) {
+  if (busy || !repo || next === scope) return;
+  const fromSidebar = get('ref-list').contains(document.activeElement);
+  scope = next; limit = 200; get('history').scrollTop = 0;
+  await run('Loading branch history…', async () => { await loadGraph(); notify('History scope updated'); });
+  if (fromSidebar) [...get('ref-list').querySelectorAll<HTMLButtonElement>('button')].find(item => item.dataset.scope === (scope ?? ''))?.focus({ preventScroll: true });
 }
 function updateSelection() {
   get('history-rows').querySelectorAll<HTMLTableRowElement>('tr').forEach(row => {
@@ -422,7 +452,7 @@ button('changes-button').onclick = toggleChanges;
 button('close-changes').onclick = toggleChanges;
 button('dismiss-error').onclick = () => { get('error').hidden = true; };
 button('load-more').onclick = () => { if (!page || busy) return; limit += 200; void run('Loading history…', async () => { await loadGraph(true); notify(page!.commits.length + ' commits loaded'); }); };
-select('scope').onchange = () => { scope = select('scope').value || null; limit = 200; get('history').scrollTop = 0; void run('Loading branch history…', async () => { await loadGraph(); notify('History scope updated'); }); };
+select('scope').onchange = () => { void changeScope(select('scope').value || null); };
 select('detail-file').onchange = () => { void run('Reading commit diff…', loadDetailDiff); };
 select('detail-parent').onchange = () => { if (!repo || !details) return; void run('Comparing merge parent…', async () => { details = await api.details(repo!.id, details!.oid, select('detail-parent').value || null); renderDetails(); await loadDetailDiff(); notify('Comparison updated'); }); };
 input('detail-sha').onclick = () => input('detail-sha').select();

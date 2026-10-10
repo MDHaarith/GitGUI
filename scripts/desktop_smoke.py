@@ -103,6 +103,23 @@ with tempfile.TemporaryDirectory(prefix="gitgui-native-") as temporary:
         wait("document.fonts.status === 'loaded'")
         assert execute("return [...document.fonts].some(f=>f.family==='Geist' && f.status==='loaded')")
         print("PASS native startup, real graph, offline fonts, hidden details", flush=True)
+        assert execute("return !document.getElementById('branch-sidebar').hidden && document.getElementById('changes').hidden")
+        assert execute("return document.querySelectorAll('#ref-list .ref-item').length === document.getElementById('scope').options.length")
+        assert execute("return document.querySelector('.ref-head').parentElement.textContent.includes('main')")
+        assert execute("const side=document.getElementById('branch-sidebar').getBoundingClientRect(); const graph=document.getElementById('history').getBoundingClientRect(); return side.right <= graph.left && Math.abs(side.height-graph.height)<1")
+        graph_branch = execute("return [...document.getElementById('scope').options].find(o=>o.textContent==='feat/graph').value")
+        click('#ref-list .ref-item[data-scope="' + graph_branch + '"]'); idle()
+        assert execute("return document.getElementById('history-rows').children.length") == 5
+        assert execute("return document.getElementById('scope').value") == graph_branch
+        assert execute("return document.activeElement.dataset.scope") == graph_branch
+        assert execute("return document.querySelectorAll('#ref-list .ref-item').length === document.getElementById('scope').options.length")
+        click('#ref-list .ref-item[data-scope=""]'); idle()
+        assert execute("return document.getElementById('history-rows').children.length") == expected
+        choose('#scope', graph_branch); idle()
+        assert execute("return document.querySelector('#ref-list [aria-pressed=true]').dataset.scope") == graph_branch
+        click('#ref-list .ref-item[data-scope=""]'); idle()
+        click('#history-rows tr:first-child button.subject')
+        print("PASS persistent branches, full-height graph, shared filters, and sidebar keyboard focus", flush=True)
         click("#details-button"); wait("document.getElementById('details').open"); idle()
         assert execute("return document.getElementById('detail-parent').options.length") == 2
         execute("document.getElementById('details').close()")

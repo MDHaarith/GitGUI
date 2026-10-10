@@ -1,8 +1,12 @@
 # GitGUI
 
 A Linux desktop Git client built with Rust, Tauri 2, and TypeScript. The interface
-uses the supplied Busy History theme: a compact dark graph, Geist fonts bundled
-offline, inline branch/tag labels, and commit details opened on demand.
+uses a Linear-inspired dark canvas, neutral lifted surfaces, restrained lavender
+controls, and Geist fonts bundled offline. A persistent sidebar lists local and
+remote branches and tags beside the full-height, scrollable commit graph. Select
+a sidebar entry to filter history, or All branches to see their connections.
+The graph keeps inline ref labels and opens commit details on demand. Visual
+conventions live in `DESIGN.md`.
 
 Open an existing repository or linked worktree, browse branches and merge parents,
 inspect commit or working-tree diffs, stage/unstage whole files, create commits,
@@ -87,7 +91,8 @@ protection, fast-forward pull, rejected pushes, and shallow history.
 
 The native desktop smoke test drives the actual release binary and Rust bridge
 using [Tauri's native WebDriver workflow](https://v2.tauri.app/develop/tests/webdriver/).
-It checks the graph, fonts, on-demand details, selective staging, commits,
+It checks the branch sidebar, graph filtering, keyboard focus, fonts, on-demand
+details, selective staging, commits,
 retained drafts after failed hooks, branch actions, publishing, and fetch.
 
 With `tauri-driver` and `WebKitWebDriver` installed:

@@ -70,7 +70,7 @@ export function paintGraph(svg: SVGSVGElement, layout: Layout, height: number, r
       svg.append(element('path', { d: path, stroke: rail.color, 'stroke-width': 1.75, fill: 'none', 'data-child': row.commit.oid, 'data-parent': rail.parent }));
     }
     if (row.commit.oid === head) svg.append(element('circle', { cx: x(row.lane), cy: center, r: 8, fill: 'none', stroke: row.color, opacity: .35 }));
-    const node = element('circle', { cx: x(row.lane), cy: center, r: row.commit.parents.length > 1 ? 5.5 : 4, fill: row.commit.parents.length === 1 ? row.color : '#141518', stroke: row.color, 'stroke-width': row.commit.oid === selected ? 2 : 1.75, 'data-node': row.commit.oid });
+    const node = element('circle', { cx: x(row.lane), cy: center, r: row.commit.parents.length > 1 ? 5.5 : 4, fill: row.commit.parents.length === 1 ? row.color : 'var(--surface-1)', stroke: row.color, 'stroke-width': row.commit.oid === selected ? 2 : 1.75, 'data-node': row.commit.oid });
     if (row.commit.shallow) node.setAttribute('stroke-dasharray', '2 2');
     svg.append(node);
   }
