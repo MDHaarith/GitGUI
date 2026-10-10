@@ -32,6 +32,8 @@ export const api = {
   commit: (repoId: number, message: string, token: string, detachedOk: boolean, bump: string | null) => invoke<RepoInfo>('create_commit', { repoId, message, token, detachedOk, bump }),
   createBranch: (repoId: number, name: string, oid: string | null, token: string) => invoke<RepoInfo>('create_branch', { repoId, name, oid, token }),
   switchBranch: (repoId: number, referenceId: string, token: string) => invoke<RepoInfo>('switch_branch', { repoId, referenceId, token }),
+  renameBranch: (repoId: number, referenceId: string, name: string, token: string) => invoke<RepoInfo>('rename_branch', { repoId, referenceId, name, token }),
+  deleteBranch: (repoId: number, referenceId: string, force: boolean, token: string) => invoke<RepoInfo>('delete_branch', { repoId, referenceId, force, token }),
   fetch: (repoId: number, remoteId: string, progress: (message: string) => void) => invoke<RepoInfo>('fetch_remote', { repoId, remoteId, onProgress: new Channel<string>(progress) }),
   pull: (repoId: number, token: string, progress: (message: string) => void) => invoke<RepoInfo>('pull_remote', { repoId, token, onProgress: new Channel<string>(progress) }),
   push: (repoId: number, remoteId: string | null, token: string, progress: (message: string) => void) => invoke<RepoInfo>('push_remote', { repoId, remoteId, token, onProgress: new Channel<string>(progress) }),

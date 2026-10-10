@@ -188,6 +188,32 @@ async fn switch_branch(
     .await
 }
 #[tauri::command]
+async fn rename_branch(
+    repo_id: u64,
+    reference_id: String,
+    name: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.rename_branch(repo_id, &reference_id, &name, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn delete_branch(
+    repo_id: u64,
+    reference_id: String,
+    force: bool,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.delete_branch(repo_id, &reference_id, force, &token)
+    })
+    .await
+}
+#[tauri::command]
 async fn fetch_remote(
     repo_id: u64,
     remote_id: String,
@@ -395,6 +421,8 @@ pub fn run() {
             create_commit,
             create_branch,
             switch_branch,
+            rename_branch,
+            delete_branch,
             fetch_remote,
             pull_remote,
             push_remote,

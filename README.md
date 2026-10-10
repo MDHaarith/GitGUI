@@ -10,7 +10,7 @@ conventions live in `DESIGN.md`.
 
 Open an existing repository or linked worktree, browse branches and merge parents,
 inspect commit or working-tree diffs, stage/unstage whole files, create commits,
-create/switch local branches, and fetch/pull/push.
+create, switch, rename, and delete local branches, and fetch/pull/push.
 
 ## Install
 
@@ -206,7 +206,7 @@ git add -A && git commit
 npm run tauri -- build --bundles appimage
 ```
 
-Merge the release into the existing `master` branch. Keep versioned release
+Merge the release into the existing `GitGUI` branch. Keep versioned release
 filenames and checksums; point the desktop's `current` symlink at the new extracted release after verifying
 startup. Retire obsolete launchers and binaries without deleting application
 profiles or repository files.

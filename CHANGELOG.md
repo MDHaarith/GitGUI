@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0 — 2026-10-11
+
+- Rename and delete local branches from the Branches dialog; unmerged branches need a second confirmation.
+- Fix Fetch, Pull, Push, and other toolbar buttons disappearing off the right edge in narrower windows: the toolbar and scope bar now wrap.
+
 ## 0.6.0 — 2026-10-11
 
 - Review AI changes: every file changed since your last checkpoint or commit, riskiest first, with per-file Undo, Undo all, and diffs.

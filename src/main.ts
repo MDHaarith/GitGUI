@@ -98,6 +98,8 @@ app.innerHTML = `
   <dialog class="branch-dialog" id="branches" aria-labelledby="branches-title">
     <div class="dialog-head"><h2 id="branches-title">Branches</h2><form method="dialog"><button type="submit">Close</button></form></div>
     <div class="form-grid"><label for="branch-select">Switch to a local branch</label><select id="branch-select"></select><div class="row"><button class="chip" id="switch-branch">Switch branch</button></div>
+      <label for="branch-rename">Rename the chosen branch</label><input id="branch-rename" maxlength="1024" autocomplete="off" placeholder="new-name">
+      <div class="row"><button class="chip" id="rename-branch">Rename branch</button><button id="delete-branch" title="Delete the chosen branch (not the one you are on)">Delete branch</button></div>
       <label for="branch-name">Create branch</label><input id="branch-name" placeholder="feature/name" maxlength="1024" autocomplete="off">
       <label for="branch-start">Start at</label><select id="branch-start"><option value="head">Current HEAD</option><option value="selected">Selected commit</option></select>
       <div class="row"><button class="chip" id="create-branch">Create branch</button></div><p id="branch-note"></p>
@@ -234,6 +236,10 @@ function updateControls() {
   disable('load-more', unavailable || (limit >= 10000 ? '10,000 commits loaded. Choose a narrower history scope.' : ''));
   disable('commit-button', blocked || (!stagedFiles().length ? 'Stage at least one file before committing.' : !input('summary').value.trim() ? 'Enter a commit summary.' : ''));
   disable('switch-branch', blocked || (!select('branch-select').value ? 'Choose a local branch.' : ''));
+  const chosen = page?.refs.find(ref => ref.id === select('branch-select').value);
+  const newName = input('branch-rename').value.trim();
+  disable('rename-branch', blocked || (!chosen ? 'Choose a local branch.' : !newName || newName === chosen.name ? 'Enter a new name for the branch.' : ''));
+  disable('delete-branch', blocked || (!chosen ? 'Choose a local branch.' : chosen.isHead ? 'You are on this branch. Switch to another branch first.' : ''));
   disable('create-branch', blocked || (!repo?.head ? 'Create the first commit before creating another branch.' : !input('branch-name').value.trim() ? 'Enter a branch name.' : ''));
   disable('ai-message', blocked || (!stagedFiles().length ? 'Stage the files to describe first.' : ''));
   disable('ai-explain', unavailable || (!stagedFiles().length ? 'Stage the files to explain first.' : ''));
@@ -867,7 +873,18 @@ function openBranches() {
   for (const ref of page?.refs.filter(ref => ref.kind === 'local') ?? []) branches.append(option(ref.id, (ref.isHead ? '✓ ' : '') + ref.name));
   get('branch-note').textContent = repo.head ? 'Creating a branch adds a name at the chosen commit. Switching keeps Git’s normal protection for working changes.' : 'Create the first commit before creating another branch.';
   select('branch-start').options[1].disabled = !selected;
+  input('branch-rename').value = page?.refs.find(ref => ref.id === branches.value)?.name ?? '';
   updateControls(); dialog('branches').showModal();
+}
+async function deleteBranch() {
+  if (!repo || busy) return;
+  const id = select('branch-select').value; const name = page?.refs.find(ref => ref.id === id)?.name ?? '';
+  if (!await confirm(`Delete the branch "${name}"? Git refuses if its commits exist nowhere else.`, { title: 'Delete branch', kind: 'warning' })) return;
+  dialog('branches').close(); scope = null;
+  await mutate('Deleting branch…', () => api.deleteBranch(repo!.id, id, false, repo!.token));
+  if (!get('error').hidden && /exist nowhere else/.test(get('error-text').textContent ?? '') && await confirm(`"${name}" has commits that exist nowhere else. Delete it anyway and lose them?`, { title: 'Force delete branch', kind: 'warning' })) {
+    await mutate('Deleting branch…', () => api.deleteBranch(repo!.id, id, true, repo!.token));
+  }
 }
 function chooseRemote(action: 'fetch' | 'push') {
   if (!repo || busy) return;
@@ -919,7 +936,10 @@ input('summary').oninput = () => { saveDraft(); updateControls(); };
 get<HTMLTextAreaElement>('body').oninput = saveDraft;
 get<HTMLFormElement>('commit-form').onsubmit = event => { event.preventDefault(); void commitChanges(); };
 input('branch-name').oninput = updateControls;
-select('branch-select').onchange = updateControls;
+select('branch-select').onchange = () => { input('branch-rename').value = page?.refs.find(ref => ref.id === select('branch-select').value)?.name ?? ''; updateControls(); };
+input('branch-rename').oninput = updateControls;
+button('rename-branch').onclick = () => { if (!repo) return; const id = select('branch-select').value; const name = input('branch-rename').value.trim(); dialog('branches').close(); scope = null; void mutate('Renaming branch…', () => api.renameBranch(repo!.id, id, name, repo!.token)); };
+button('delete-branch').onclick = () => { void deleteBranch(); };
 button('switch-branch').onclick = () => { if (!repo) return; const id = select('branch-select').value; dialog('branches').close(); scope = null; void mutate('Switching branch…', () => api.switchBranch(repo!.id, id, repo!.token)); };
 button('create-branch').onclick = () => { if (!repo) return; const name = input('branch-name').value.trim(); const oid = select('branch-start').value === 'selected' ? selected : null; dialog('branches').close(); void mutate('Creating branch…', () => api.createBranch(repo!.id, name, oid, repo!.token)); };
 select('remote-select').onchange = remoteUrl;

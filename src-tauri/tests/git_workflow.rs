@@ -821,3 +821,46 @@ fn undo_commit_keeps_changes_staged_and_refuses_pushed_or_first_commits() {
     assert_eq!(cmd(&f.root, &["log", "--format=%s"]), "base");
     assert_eq!(cmd(&f.root, &["tag"]), "");
 }
+
+#[test]
+fn branches_are_renamed_and_deleted_safely() {
+    let f = Fixture::new();
+    f.commit("a.txt", "one\n", "base");
+    cmd(&f.root, &["branch", "side"]);
+    let (mut b, info) = f.open();
+    let id = |b: &mut Backend, name: &str| {
+        b.graph(info.id, None, 50, None)
+            .unwrap()
+            .refs
+            .into_iter()
+            .find(|r| r.name == name)
+            .unwrap()
+            .id
+    };
+    let main = id(&mut b, "main");
+    let info = b
+        .rename_branch(info.id, &main, "GitGUI", &info.token)
+        .unwrap();
+    assert_eq!(info.branch.as_deref(), Some("GitGUI"));
+    let side = id(&mut b, "side");
+    assert!(b
+        .rename_branch(info.id, &side, "bad..name", &info.token)
+        .is_err());
+    let head = id(&mut b, "GitGUI");
+    assert!(b
+        .delete_branch(info.id, &head, false, &info.token)
+        .unwrap_err()
+        .contains("Switch"));
+
+    cmd(&f.root, &["switch", "-q", "side"]);
+    f.commit("a.txt", "two\n", "only on side");
+    cmd(&f.root, &["switch", "-q", "GitGUI"]);
+    let info = b.status(info.id).unwrap();
+    let side = id(&mut b, "side");
+    assert!(b
+        .delete_branch(info.id, &side, false, &info.token)
+        .unwrap_err()
+        .contains("nowhere else"));
+    b.delete_branch(info.id, &side, true, &info.token).unwrap();
+    assert_eq!(cmd(&f.root, &["branch", "--list", "side"]), "");
+}

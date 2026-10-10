@@ -858,13 +858,7 @@ impl Backend {
         let repo = self.repo(id)?;
         let info = repo.checked(token)?;
         repo.require_normal(&info)?;
-        if name.is_empty() || name.starts_with('-') || name.len() > 1024 || name.contains('\0') {
-            return Err("Enter a valid branch name".into());
-        }
-        let valid = read(&repo.root, &argv(&["check-ref-format", "--branch", name]))?;
-        if line(&valid) != name.as_bytes() {
-            return Err("Use an exact branch name, not a checkout abbreviation".into());
-        }
+        repo.valid_branch_name(name)?;
         let start = oid
             .or(info.head)
             .ok_or("Create the first commit before creating another branch")?;
@@ -876,17 +870,52 @@ impl Backend {
         let repo = self.repo(id)?;
         let info = repo.checked(token)?;
         repo.require_normal(&info)?;
-        let refs = repo.refs()?;
-        let reference = refs
-            .iter()
-            .find(|r| r.id == reference_id && r.kind == "local")
-            .ok_or("Choose an existing local branch")?;
-        let raw_ref = decode_hex(&reference.id)?;
-        let name = raw_ref
-            .strip_prefix(b"refs/heads/")
-            .ok_or("Invalid branch")?;
-        let args = vec![os("switch"), os("--no-guess"), os("--"), from_bytes(name)];
+        let name = repo.local_branch(reference_id)?;
+        let args = vec![os("switch"), os("--no-guess"), os("--"), name];
         repo.write(&args, None, None, None)?;
+        repo.info()
+    }
+    /// Renames a local branch; its upstream setting moves with it.
+    pub fn rename_branch(
+        &mut self,
+        id: u64,
+        reference_id: &str,
+        name: &str,
+        token: &str,
+    ) -> Result<RepoInfo> {
+        let repo = self.repo(id)?;
+        let info = repo.checked(token)?;
+        repo.require_normal(&info)?;
+        let old = repo.local_branch(reference_id)?;
+        repo.valid_branch_name(name)?;
+        repo.write(
+            &[os("branch"), os("-m"), os("--"), old, os(name)],
+            None,
+            None,
+            None,
+        )?;
+        repo.info()
+    }
+    /// Deletes a local branch; without `force`, Git refuses when its commits are not merged anywhere.
+    pub fn delete_branch(
+        &mut self,
+        id: u64,
+        reference_id: &str,
+        force: bool,
+        token: &str,
+    ) -> Result<RepoInfo> {
+        let repo = self.repo(id)?;
+        let info = repo.checked(token)?;
+        repo.require_normal(&info)?;
+        let name = repo.local_branch(reference_id)?;
+        if info.branch.as_deref().map(OsStr::new) == Some(name.as_os_str()) {
+            return Err(
+                "You are on this branch. Switch to another branch before deleting it.".into(),
+            );
+        }
+        let flag = if force { "-D" } else { "-d" };
+        repo.write(&[os("branch"), os(flag), os("--"), name], None, None, None)
+            .map_err(|e| if e.contains("not fully merged") { format!("This branch has commits that exist nowhere else; deleting it would lose them. {e}") } else { e })?;
         repo.info()
     }
     pub fn fetch(
@@ -1278,6 +1307,28 @@ impl Repository {
             version: crate::version::current(&self.root),
             versioning: crate::version::enabled(&self.metadata("hooks")?),
         })
+    }
+    fn valid_branch_name(&self, name: &str) -> Result<()> {
+        if name.is_empty() || name.starts_with('-') || name.len() > 1024 || name.contains('\0') {
+            return Err("Enter a valid branch name".into());
+        }
+        let valid = read(&self.root, &argv(&["check-ref-format", "--branch", name]))?;
+        if line(&valid) != name.as_bytes() {
+            return Err("Use an exact branch name, not a checkout abbreviation".into());
+        }
+        Ok(())
+    }
+    fn local_branch(&self, reference_id: &str) -> Result<OsString> {
+        let refs = self.refs()?;
+        let reference = refs
+            .iter()
+            .find(|r| r.id == reference_id && r.kind == "local")
+            .ok_or("Choose an existing local branch")?;
+        let raw_ref = decode_hex(&reference.id)?;
+        let name = raw_ref
+            .strip_prefix(b"refs/heads/")
+            .ok_or("Invalid branch")?;
+        Ok(from_bytes(name))
     }
     fn in_progress(&self) -> Result<Option<&'static str>> {
         for (name, label) in [
