@@ -7,6 +7,8 @@ import { findCommits, layoutHistory, paintGraph, type Layout } from './graph.ts'
 import { numberDiff } from './diff.ts';
 import { wireDropdown } from './dropdown.ts';
 import { aiCost, explainCrash, explainError, explainState, sortByRisk } from './explain.ts';
+import { forgetRecent, isUnavailable, parseRecent, rememberRecent } from './recent.ts';
+import { summaryHint } from './commit.ts';
 import './styles.css';
 
 const app = document.getElementById('app')!;
@@ -78,7 +80,7 @@ app.innerHTML = `
     </section>
     <aside id="details" class="details-panel" aria-labelledby="detail-title" tabindex="-1" hidden>
       <div class="dialog-head"><h2 id="detail-title">Commit details</h2><button id="close-details">Close</button></div>
-      <div class="metadata"><span id="detail-author"></span><span id="detail-date"></span><input id="detail-sha" readonly aria-label="Full commit object ID"></div>
+      <div class="metadata"><span id="detail-author"></span><span id="detail-date"></span><input id="detail-sha" readonly aria-label="Full commit object ID"><button id="copy-sha" class="chip" title="Copy the full commit ID">Copy</button></div>
       <pre class="message" id="detail-message"></pre><div class="parents" id="detail-parents"></div>
       <div class="detail-controls"><label for="detail-parent">Compare to</label><select id="detail-parent"></select><label for="detail-file">Files</label><select id="detail-file"></select><button id="detail-file-prev" aria-label="Previous changed file" title="Previous file (Alt+Up)">↑</button><button id="detail-file-next" aria-label="Next changed file" title="Next file (Alt+Down)">↓</button></div>
       <pre class="diff" id="detail-diff"></pre>
@@ -90,7 +92,7 @@ app.innerHTML = `
         <div class="file-list" id="file-list"></div>
         <div class="working-preview"><div class="preview-label" id="working-path">Select a file to review its diff.</div><pre class="diff" id="working-diff"></pre></div>
         <form class="composer" id="commit-form">
-          <label for="summary">Summary</label><input id="summary" required maxlength="1000" autocomplete="off" placeholder="Describe this commit">
+          <div class="label-row"><label for="summary">Summary</label><span id="summary-hint" class="summary-hint"></span></div><input id="summary" required maxlength="1000" autocomplete="off" placeholder="Describe this commit" aria-describedby="summary-hint">
           <label for="body">Description <span class="muted">(optional)</span></label><textarea id="body" maxlength="64000" rows="3"></textarea>
           <div class="commit-row"><button type="button" id="ai-message" data-repo title="Let the AI write the commit message from the staged changes">Write message with AI</button><button type="button" id="ai-explain" data-repo title="Let the AI explain the staged changes in plain English">Explain staged changes</button><button type="button" id="ai-settings" title="Choose Claude, DeepSeek, OpenAI, Ollama, Codex, opencode, or any other AI">AI settings</button></div>
           <div class="commit-row"><span id="version-controls"><label for="bump">Version <span class="mono" id="repo-version"></span></label> <select id="bump" data-repo><option value="minor">Minor · feature</option><option value="patch">Patch · fix</option><option value="major">Major · breaking</option><option value="">No bump</option></select></span><button id="enable-versioning" data-repo title="Block secrets and failing tests, and give every code commit its own version">Enable safeguards</button></div>
@@ -221,11 +223,19 @@ let operationLabel = '';
 function stored(key: string) { try { return localStorage.getItem(key); } catch { return null; } }
 function save(key: string, value: string) { try { localStorage.setItem(key, value); } catch { /* Storage may be unavailable; the current draft remains in memory. */ } }
 function removeStored(key: string) { try { localStorage.removeItem(key); } catch { /* Keep the successful commit usable without storage. */ } }
-function recentRepositories(): string[] {
-  try {
-    const paths: unknown = JSON.parse(stored('recentRepositories') ?? '[]');
-    return Array.isArray(paths) ? [...new Set(paths.filter((path): path is string => typeof path === 'string' && path.startsWith('/') && path.length <= 32768 && !path.includes('\0')))].slice(0, 8) : [];
-  } catch { return []; }
+function recentRepositories() { return parseRecent(stored('recentRepositories')); }
+function forgetRepository(path: string) {
+  save('recentRepositories', JSON.stringify(forgetRecent(recentRepositories(), path)));
+  if (stored('lastRepository') === path) removeStored('lastRepository');
+  removeStored('draft:' + path);
+}
+async function openSaved(path: string) {
+  try { await openPath(path); }
+  catch (error) {
+    if (!isUnavailable(error)) throw error;
+    forgetRepository(path); renderRecentRepositories();
+    throw new Error(path + ' is no longer available and was removed from recent repositories.');
+  }
 }
 function renderRecentRepositories() {
   const control = select('recent-repos'); control.replaceChildren(option('', 'Recent repositories'));
@@ -238,6 +248,11 @@ function saveDraft() { if (repo) save(draftKey(), JSON.stringify({ summary: inpu
 function restoreDraft() {
   input('summary').value = ''; get<HTMLTextAreaElement>('body').value = '';
   try { const value = JSON.parse(stored(draftKey()) ?? '{}'); input('summary').value = typeof value.summary === 'string' ? value.summary : ''; get<HTMLTextAreaElement>('body').value = typeof value.body === 'string' ? value.body : ''; } catch { /* Ignore a malformed saved draft. */ }
+  renderSummaryHint();
+}
+function renderSummaryHint() {
+  const hint = summaryHint(input('summary').value);
+  get('summary-hint').textContent = hint.text; get('summary-hint').classList.toggle('warning', hint.warning);
 }
 function notify(message: string) { get('status').textContent = message; }
 function report(error: unknown) { const why = explainError(String(error)); get('error-text').textContent = (why ? why + '\n\n' : '') + String(error).slice(0, 4000); get('error').hidden = false; notify('Operation failed. Review the message and refresh if needed.'); }
@@ -333,8 +348,9 @@ function renderInfo() {
   get('welcome').hidden = !!repo;
   get('branch-sidebar').hidden = !repo;
   get('workspace').classList.toggle('repository-open', !!repo);
-  get('behind-count').textContent = String(repo?.behind ?? 0); get('behind-count').hidden = !repo?.behind;
-  get('ahead-count').textContent = String(repo?.ahead ?? 0); get('ahead-count').hidden = !repo?.ahead;
+  // Ahead/behind only mean something against an upstream.
+  get('behind-count').textContent = String(repo?.behind ?? 0); get('behind-count').hidden = !repo?.behind || !repo.upstream;
+  get('ahead-count').textContent = String(repo?.ahead ?? 0); get('ahead-count').hidden = !repo?.ahead || !repo.upstream;
   const offline = !!repo && !repo.remotes.length;
   for (const id of ['fetch', 'pull', 'push']) get(id).hidden = offline;
   get('publish').hidden = !offline;
@@ -556,7 +572,7 @@ async function openPath(path: string, load = api.open) {
   repo = next; epoch++; scope = null; limit = 200; page = null; selected = null; workingFile = null;
   checked.staged.clear(); checked.unstaged.clear(); input('branch-name').value = '';
   input('history-search').value = ''; searchMatches = [];
-  save('recentRepositories', JSON.stringify([repo.root, ...recentRepositories().filter(path => path !== repo!.root)].slice(0, 8)));
+  save('recentRepositories', JSON.stringify(rememberRecent(recentRepositories(), repo.root)));
   health = []; loadHealth();
   save('lastRepository', repo.root); restoreDraft(); renderInfo(); renderFiles();
   get('working-diff').replaceChildren(); get('working-path').textContent = 'Select a file to review its diff.';
@@ -625,6 +641,7 @@ function updateDetailControls() {
   select('detail-parent').disabled = busy || !details || details.parents.length < 2;
   button('detail-file-prev').disabled = files.disabled || files.selectedIndex <= 0;
   button('detail-file-next').disabled = files.disabled || files.selectedIndex >= files.options.length - 1;
+  disable('copy-sha', !details ? 'Open a commit to copy its ID.' : '');
 }
 function moveDetailFile(direction: number) {
   const files = select('detail-file');
@@ -910,6 +927,13 @@ function renderFiles() {
         const explain = document.createElement('button'); explain.type = 'button'; explain.textContent = 'Explain'; explain.title = 'Let the AI explain both sides of this conflict'; explain.disabled = busy;
         explain.addEventListener('click', () => { void explainChanges('conflict:' + file.id, 'Conflict in ' + file.path); }); row.append(explain);
       }
+      if (staged !== null && !file.submodule) {
+        const quick = document.createElement('button'); quick.type = 'button'; quick.className = 'row-action';
+        quick.textContent = staged ? 'Unstage' : 'Stage'; quick.setAttribute('aria-label', quick.textContent + ' ' + file.path);
+        quick.disabled = busy || !normal();
+        quick.addEventListener('click', () => { if (repo) void mutate(staged ? 'Unstaging ' + file.path + '…' : 'Staging ' + file.path + '…', () => api.stage(repo!.id, [file.id], staged, repo!.token)); });
+        row.append(quick);
+      }
       list.append(row);
     }
   }
@@ -924,14 +948,14 @@ function clearWorkingPreview() {
   workingFile = null; workingRequest++; get('working-diff').replaceChildren();
   get('working-path').textContent = 'Select a file to review its diff.';
 }
-async function refreshWorkingPreview() {
+async function refreshWorkingPreview(quiet = false) {
   const selection = workingFile;
   const file = repo?.files.find(file => file.id === selection?.id && !file.conflicted && (selection.staged ? file.index !== '.' && !file.untracked : file.worktree !== '.' || file.untracked));
   if (!repo || !selection || !file) { clearWorkingPreview(); renderFiles(); return; }
   const id = repo.id; const request = ++workingRequest;
   get('working-path').textContent = (selection.staged ? 'Staged · ' : 'Working tree · ') + file.path;
-  get('working-diff').textContent = 'Reading diff…';
-  const preview = await api.workingDiff(id, file.id, selection.staged);
+  if (!quiet) get('working-diff').textContent = 'Reading diff…';
+  const preview = await readDetail(api.workingDiff(id, file.id, selection.staged));
   if (repo?.id === id && request === workingRequest) previewInto('working-diff', preview);
 }
 async function mutate(label: string, action: () => Promise<RepoInfo>, committed = false) {
@@ -939,7 +963,7 @@ async function mutate(label: string, action: () => Promise<RepoInfo>, committed 
     const info = await action(); repo = info; epoch++;
     checked.staged.clear(); checked.unstaged.clear(); clearWorkingPreview();
     if (committed) {
-      input('summary').value = ''; get<HTMLTextAreaElement>('body').value = ''; removeStored(draftKey());
+      input('summary').value = ''; get<HTMLTextAreaElement>('body').value = ''; removeStored(draftKey()); renderSummaryHint();
       selected = repo.head; scope = null; limit = 200;
     }
     get('working-diff').replaceChildren(); get('working-path').textContent = 'Select a file to review its diff.';
@@ -988,7 +1012,7 @@ function chooseRemote(action: 'fetch' | 'push') {
 function remoteUrl() { get('remote-url').textContent = repo?.remotes.find(remote => remote.id === select('remote-select').value)?.url ?? ''; }
 
 button('open-repo').onclick = () => { void chooseRepository(); };
-select('recent-repos').onchange = () => { const path = select('recent-repos').value; if (path && path !== repo?.root) void run('Opening repository…', () => openPath(path)); };
+select('recent-repos').onchange = () => { const path = select('recent-repos').value; if (path && path !== repo?.root) void run('Opening repository…', () => openSaved(path)); };
 button('welcome-open').onclick = () => { void chooseRepository(); };
 button('init-repo').onclick = () => { void initRepository(); };
 button('enable-versioning').onclick = () => { void enableVersioning(); };
@@ -1019,7 +1043,14 @@ select('scope').onchange = () => { void changeScope(select('scope').value || nul
 select('detail-file').onchange = () => { void loadDetailDiff(); };
 select('detail-parent').onchange = () => { if (details) void openDetails(details.oid, select('detail-parent').value || null); };
 input('detail-sha').onclick = () => input('detail-sha').select();
-input('summary').oninput = () => { saveDraft(); updateControls(); };
+button('copy-sha').onclick = async () => {
+  if (!details) return;
+  const oid = details.oid;
+  try { await navigator.clipboard.writeText(oid); }
+  catch { input('detail-sha').select(); if (!document.execCommand('copy')) { notify('Select the commit ID and copy it manually.'); return; } }
+  notify('Copied ' + short(oid));
+};
+input('summary').oninput = () => { saveDraft(); renderSummaryHint(); updateControls(); };
 get<HTMLTextAreaElement>('body').oninput = saveDraft;
 get<HTMLFormElement>('commit-form').onsubmit = event => { event.preventDefault(); void commitChanges(); };
 input('branch-name').oninput = updateControls;
@@ -1078,7 +1109,21 @@ window.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r') { event.preventDefault(); if (repo && !busy) void run('Refreshing…', refresh); }
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && get('commit-form').contains(document.activeElement)) { event.preventDefault(); void commitChanges(); }
 });
-window.addEventListener('focus', () => { if (repo && !busy && !document.querySelector('dialog[open]')) void run('Refreshing…', async () => { await refresh(); await autoCheckpoint(); }); });
+let focusCheck: Promise<void> | null = null;
+// Returning to the window re-reads status quietly and reloads history only when something changed.
+async function checkForChanges() {
+  if (!repo || busy || document.querySelector('dialog[open]')) return;
+  const id = repo.id; const currentEpoch = epoch;
+  let next: RepoInfo;
+  try { next = await readDetail(api.status(id)); } catch { return; }
+  if (busy || currentEpoch !== epoch || repo?.id !== id) return;
+  if (JSON.stringify(next) !== JSON.stringify(repo)) { await run('Refreshing…', refresh); return; }
+  if (workingFile && !get('changes').hidden) {
+    try { await refreshWorkingPreview(true); } catch { /* The next explicit refresh reports preview errors. */ }
+  }
+}
+// Refresh quietly, then save a checkpoint if the window has been away for a while.
+window.addEventListener('focus', () => { focusCheck ??= checkForChanges().then(() => autoCheckpoint()).finally(() => { focusCheck = null; }); });
 updateControls();
 if (isTauri()) {
   void getVersion().then(version => { get('app-version').textContent = 'v' + version; get('app-version').hidden = false; }).catch(report);
@@ -1086,8 +1131,12 @@ if (isTauri()) {
     if (writing) { event.preventDefault(); await nativeMessage('A Git operation is still running. Wait for it to finish before closing GitGUI.', { title: 'Git operation in progress', kind: 'info' }); }
   }).catch(report);
   void run('Starting…', async () => {
-    const path = await api.startup() ?? stored('lastRepository');
-    if (path) await openPath(path); else notify('Open a repository to begin.');
+    const requested = await api.startup();
+    const path = requested ?? stored('lastRepository');
+    if (!path) { notify('Open a repository to begin.'); return; }
+    if (requested) { await openPath(requested); return; }
+    try { await openSaved(path); }
+    catch (error) { if (!String(error).includes('no longer available')) throw error; notify('Your last repository is no longer available. Open a repository to begin.'); }
   });
   if (!stored('onboarded')) { save('onboarded', '1'); dialog('help-dialog').showModal(); }
 } else {

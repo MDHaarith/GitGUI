@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 — 2026-10-11
+
+- Returning to the window quietly checks for changes and reloads history only when the status, branches, tags, or remotes moved.
+- Drop recent repositories that were moved or deleted instead of failing at startup.
+- Show ahead/behind counts only for branches with an upstream.
+- Add per-file Stage/Unstage buttons, a 50/72 summary length guide, and a Copy button for commit IDs.
+
 ## 0.9.0 — 2026-10-11
 
 - Fix Publish making the current branch GitHub's default: you choose the main branch, which is pushed first, then the current branch.
