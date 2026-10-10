@@ -45,7 +45,7 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 :is(.toolbar, .scopebar, .select-menu, .menu-list) { --surface-2: #141516; --surface-3: #191a1b; --surface-4: #202123; --edge-strong: #34343a; --edge-tertiary: #3e3e44; }
 .chrome-symbols { position: absolute; width: 0; height: 0; overflow: hidden; }
 .chrome-icon { display: block; width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.toolbar { grid-row: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 20px; background: var(--canvas); border-bottom: 1px solid var(--edge); min-width: 0; }
+.toolbar { grid-row: 1; display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 8px 20px; background: var(--canvas); border-bottom: 1px solid var(--edge); min-width: 0; }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; letter-spacing: -.2px; padding-right: 12px; flex-shrink: 0; }
 .brand svg { width: 20px; height: 20px; stroke: var(--accent); stroke-width: 1.75; fill: var(--canvas); stroke-linecap: round; stroke-linejoin: round; }
 .app-version { color: var(--muted); font-size: 12px; font-weight: 400; letter-spacing: 0; }
@@ -304,7 +304,7 @@ dialog::backdrop { background: rgb(0 0 0 / .75); }
 .file-row > button + button { flex: none; }
 .wide-dialog > .row { display: flex; gap: 8px; margin-bottom: 8px; }
 
-.toolbar-status { display: flex; align-items: center; gap: 10px; margin-left: auto; min-width: 0; color: var(--muted); font-size: 12px; }
+.toolbar-status { display: flex; align-items: center; gap: 10px; flex: 1 1 0; justify-content: flex-end; min-width: 0; color: var(--muted); font-size: 12px; }
 #status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
 .count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9999px; background: var(--accent); color: var(--on-primary); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
 .menu { position: relative; }

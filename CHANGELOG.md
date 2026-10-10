@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.10.2 — 2026-10-11
+- Keep toolbar actions on the same row; a long status message truncates instead of pushing them down.
+
 ## 0.10.1 — 2026-10-11
 - Keep the history graph trunk in one straight column; branches that are only ahead change color instead of shifting right.
 
