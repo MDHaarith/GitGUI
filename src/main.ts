@@ -270,7 +270,7 @@ function nextMatch(direction: number) {
 }
 function renderGraph() {
   const scroll = get('history').scrollTop;
-  layout = layoutHistory(page?.commits ?? []);
+  layout = layoutHistory(page?.commits ?? [], page?.refs ?? []);
   document.documentElement.style.setProperty('--graph-width', Math.max(132, layout.lanes * 18 + 28) + 'px');
   const rows = get('history-rows'); const fragment = document.createDocumentFragment();
   historyRows.clear(); graphNodes.clear(); renderedSelection = null;

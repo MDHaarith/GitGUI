@@ -59,7 +59,8 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .subject { min-width: 0; flex: 1; color: #d9dade; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; padding: 0; border-radius: 0; }
 .subject:hover:not(:disabled) { background: transparent; }
 .ref { font: 11px 'Geist Mono', ui-monospace, monospace; height: 18px; padding: 0 5px; border: 1px solid currentColor; border-radius: 3px; margin-right: 6px; white-space: nowrap; flex-shrink: 0; max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
-.ref.remote, .ref.tag { color: #b4b7c0 !important; border-color: #44474f; }
+.ref.remote { border-style: dashed; }
+.ref.tag { color: #b4b7c0 !important; border-color: #44474f; }
 .author-cell, .date-cell { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 12px !important; }
 .sha-cell { color: var(--muted); font: 12px 'Geist Mono', ui-monospace, monospace; padding-right: 16px !important; white-space: nowrap; }
 .graph-scene { position: relative; width: 100%; min-width: calc(var(--graph-width) + 650px); }

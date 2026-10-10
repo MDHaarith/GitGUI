@@ -50,6 +50,10 @@ Search loaded commit subjects, authors, and hashes with **Ctrl+F**. Enter moves
 to the next match; Shift+Enter moves back. Search preserves the full graph and
 marks matches. Load more history or choose a branch scope to search older commits.
 
+Named branch tips start separate colored graph paths, including a branch that is
+only ahead of another branch. Local and remote labels at the same commit share
+a path; tags do not create additional lanes. Lines always follow actual parents.
+
 Open Details to review commits alongside the graph. The pane follows commit
 selection and can be resized horizontally. Diffs show old/new line numbers;
 **Alt+Up/Down** moves between changed files. Working diffs reload on refresh,
