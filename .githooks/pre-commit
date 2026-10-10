@@ -1,4 +1,5 @@
 #!/bin/sh
+# GitGUI versioning (repository-specific: also runs npm run version:check)
 # Every commit that changes app code must carry its own version bump and changelog entry.
 git diff --cached --name-only | grep -E '^src(-tauri/src)?/' | grep -qv '\.test\.ts$' || exit 0
 version() { node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version'; }
