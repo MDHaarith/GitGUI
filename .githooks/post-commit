@@ -1,0 +1,4 @@
+#!/bin/sh
+# Tag the commit that introduces each new version.
+v=$(git show HEAD:package.json | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')
+git rev-parse -q --verify "refs/tags/v$v" >/dev/null || git tag -a "v$v" -m "GitGUI $v"

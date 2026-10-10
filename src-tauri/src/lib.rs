@@ -1,4 +1,5 @@
 pub mod git;
+pub mod version;
 use git::{Backend, CommitDetails, GraphPage, Preview, Progress, RepoInfo};
 use std::sync::{Arc, Mutex};
 use tauri::{ipc::Channel, State};
@@ -42,6 +43,14 @@ fn startup_path() -> Option<String> {
 #[tauri::command]
 async fn open_repository(path: String, state: State<'_, AppState>) -> git::Result<RepoInfo> {
     task(state, true, move |b| b.open(&path)).await
+}
+#[tauri::command]
+async fn init_repository(path: String, state: State<'_, AppState>) -> git::Result<RepoInfo> {
+    task(state, true, move |b| b.init(&path)).await
+}
+#[tauri::command]
+async fn enable_versioning(repo_id: u64, state: State<'_, AppState>) -> git::Result<RepoInfo> {
+    task(state, true, move |b| b.enable_versioning(repo_id)).await
 }
 #[tauri::command]
 async fn get_status(repo_id: u64, state: State<'_, AppState>) -> git::Result<RepoInfo> {
@@ -116,10 +125,11 @@ async fn create_commit(
     message: String,
     token: String,
     detached_ok: bool,
+    bump: Option<String>,
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
-        b.commit(repo_id, &message, &token, detached_ok)
+        b.commit(repo_id, &message, &token, detached_ok, bump)
     })
     .await
 }
@@ -203,6 +213,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             startup_path,
             open_repository,
+            init_repository,
+            enable_versioning,
             get_status,
             get_graph,
             get_commit,

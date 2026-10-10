@@ -24,7 +24,7 @@ app.innerHTML = `
   </defs></svg>
   <header class="toolbar">
     <span class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v10a4 4 0 0 0 4 4h1m5-14v2a5 5 0 0 1-5 5H7"/><circle cx="7" cy="5" r="2.5"/><circle cx="17" cy="5" r="2.5"/><circle cx="15" cy="19" r="2.5"/></svg>GitGUI<span class="app-version" id="app-version" hidden></span></span>
-    <button class="secondary" id="open-repo">Open repository</button>
+    <button class="secondary" id="open-repo">Open repository</button><button class="secondary" id="init-repo">Init repository</button>
     <select id="recent-repos" aria-label="Repository"><option value="">Recent repositories</option></select>
     <div class="toolbar-actions"><button id="fetch" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-fetch"/></svg>Fetch</button><button id="pull" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-pull"/></svg>Pull</button><button id="push" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-push"/></svg>Push</button>
     <button id="refresh" data-repo><svg class="chrome-icon" id="refresh-icon" aria-hidden="true"><use href="#chrome-refresh"/></svg>Refresh</button></div>
@@ -78,6 +78,7 @@ app.innerHTML = `
         <form class="composer" id="commit-form">
           <label for="summary">Summary</label><input id="summary" required maxlength="1000" autocomplete="off" placeholder="Describe this commit">
           <label for="body">Description <span class="muted">(optional)</span></label><textarea id="body" maxlength="64000" rows="3"></textarea>
+          <div class="commit-row"><span id="version-controls"><label for="bump">Version <span class="mono" id="repo-version"></span></label> <select id="bump" data-repo><option value="minor">Minor · feature</option><option value="patch">Patch · fix</option><option value="major">Major · breaking</option><option value="">No bump</option></select></span><button id="enable-versioning" data-repo title="Install hooks that require a version bump and changelog entry for every code commit">Enable versioning</button></div>
           <div class="commit-row"><span id="staged-count">0 staged files</span><button class="primary" id="commit-button" type="submit" data-repo>Commit staged</button></div>
         </form>
       </div>
@@ -165,7 +166,7 @@ function updateControls() {
   const unavailable = busy ? 'Wait for the current Git operation to finish.' : !repo ? 'Open a repository first.' : '';
   const blocked = unavailable || (repo?.operation ? 'Finish the ' + repo.operation + ' in the terminal, then refresh.' : '');
   document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('[data-repo]').forEach(node => { node.disabled = !!unavailable; if (unavailable) node.setAttribute('aria-description', unavailable); else node.removeAttribute('aria-description'); });
-  disable('open-repo', busy ? unavailable : ''); disable('welcome-open', busy ? unavailable : '');
+  disable('open-repo', busy ? unavailable : ''); disable('init-repo', busy ? unavailable : ''); disable('welcome-open', busy ? unavailable : '');
   disable('details-button', unavailable || (!selected ? 'Select a commit to review its details.' : ''));
   disable('fetch', blocked || (!repo?.remotes.length ? 'Configure a remote with Git, then refresh.' : ''));
   disable('pull', blocked || (!repo?.upstream ? 'Publish this branch to set its upstream before pulling.' : repo.files.length ? 'Commit or resolve working changes before pulling.' : ''));
@@ -246,6 +247,8 @@ function renderInfo() {
   get('branch-status').title = repo?.upstream ? 'Upstream: ' + repo.upstream : 'No upstream';
   get('changes-count').textContent = String(repo?.files.length ?? 0);
   get('staged-count').textContent = stagedFiles().length + ' staged ' + (stagedFiles().length === 1 ? 'file' : 'files');
+  get('version-controls').hidden = !repo?.versioning; get('enable-versioning').hidden = !repo || repo.versioning;
+  get('repo-version').textContent = repo?.version ? 'v' + repo.version : 'none';
   get('operation-note').textContent = repo?.operation ? 'Finish ' + repo.operation + ' in the terminal, then refresh.' : '';
 }
 function scopeOptions() {
@@ -399,8 +402,20 @@ async function chooseRepository() {
     await openPath(path);
   });
 }
-async function openPath(path: string) {
-  const next = await api.open(path); saveDraft();
+async function initRepository() {
+  await run('Initializing repository…', async () => {
+    const path = await open({ directory: true, multiple: false, title: 'Choose a folder for the new repository' });
+    if (typeof path !== 'string') { notify('Ready'); return; }
+    await openPath(path, api.init);
+  });
+}
+async function enableVersioning() {
+  if (!repo || busy) return;
+  if (!await confirm('GitGUI will install pre-commit and post-commit hooks, and add VERSION, CHANGELOG.md, and an AGENTS.md section where missing. Code commits will then require a version bump and changelog entry, and each new version is tagged.', { title: 'Enable versioning', kind: 'info' })) return;
+  await mutate('Enabling versioning…', () => api.enableVersioning(repo!.id));
+}
+async function openPath(path: string, load = api.open) {
+  const next = await load(path); saveDraft();
   for (const id of ['branches', 'remote-dialog']) if (dialog(id).open) dialog(id).close();
   get('details').hidden = true;
   details = null; detailRequest++; workingRequest++;
@@ -589,7 +604,7 @@ async function commitChanges() {
   let detachedOk = false;
   if (repo.detached) detachedOk = await confirm('HEAD is detached. This commit will not belong to a branch. Continue?', { title: 'Commit on detached HEAD', kind: 'warning' });
   if (repo.detached && !detachedOk) return;
-  saveDraft(); await mutate('Creating commit…', () => api.commit(repo!.id, message, repo!.token, detachedOk), true);
+  saveDraft(); await mutate('Creating commit…', () => api.commit(repo!.id, message, repo!.token, detachedOk, repo!.versioning ? select('bump').value || null : null), true);
 }
 function openBranches() {
   if (!repo || busy) return;
@@ -616,6 +631,8 @@ function remoteUrl() { get('remote-url').textContent = repo?.remotes.find(remote
 button('open-repo').onclick = () => { void chooseRepository(); };
 select('recent-repos').onchange = () => { const path = select('recent-repos').value; if (path && path !== repo?.root) void run('Opening repository…', () => openPath(path)); };
 button('welcome-open').onclick = () => { void chooseRepository(); };
+button('init-repo').onclick = () => { void initRepository(); };
+button('enable-versioning').onclick = () => { void enableVersioning(); };
 button('refresh').onclick = () => {
   const icon = get('refresh-icon'); icon.classList.remove('spinning'); void icon.getBoundingClientRect(); icon.classList.add('spinning');
   void run('Refreshing…', refresh);
@@ -671,5 +688,5 @@ if (isTauri()) {
   });
 } else {
   get('welcome').querySelector('p')!.textContent = 'Launch the GitGUI desktop app to work with local repositories.';
-  button('welcome-open').disabled = true; button('open-repo').disabled = true; notify('Desktop runtime required');
+  button('welcome-open').disabled = true; button('open-repo').disabled = true; button('init-repo').disabled = true; notify('Desktop runtime required');
 }

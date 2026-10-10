@@ -87,6 +87,8 @@ pub struct RepoInfo {
     pub remotes: Vec<RemoteInfo>,
     pub files: Vec<FileInfo>,
     pub token: String,
+    pub version: Option<String>,
+    pub versioning: bool,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Preview {
@@ -473,6 +475,16 @@ impl Backend {
         self.repo = Some(repository);
         Ok(info)
     }
+    pub fn init(&mut self, path: &str) -> Result<RepoInfo> {
+        read(Path::new(path), &argv(&["init"]))?;
+        let id = self.open(path)?.id;
+        self.enable_versioning(id)
+    }
+    pub fn enable_versioning(&mut self, id: u64) -> Result<RepoInfo> {
+        let repo = self.repo(id)?;
+        crate::version::enable(&repo.root, &repo.metadata("hooks")?)?;
+        repo.info()
+    }
     fn repo(&mut self, id: u64) -> Result<&mut Repository> {
         self.repo
             .as_mut()
@@ -706,6 +718,7 @@ impl Backend {
         message: &str,
         token: &str,
         detached_ok: bool,
+        bump: Option<String>,
     ) -> Result<RepoInfo> {
         let repo = self.repo(id)?;
         let info = repo.checked(token)?;
@@ -718,6 +731,25 @@ impl Backend {
         }
         if !info.files.iter().any(|f| f.index != "." && !f.untracked) {
             return Err("No staged changes to commit".into());
+        }
+        if let Some(level) = bump {
+            let old = info
+                .version
+                .ok_or("No version found in package.json, Cargo.toml, or VERSION.")?;
+            let new = crate::version::bump(&old, &level)?;
+            let mut paths = crate::version::apply(&repo.root, &old, &new)?;
+            crate::version::add_changelog(
+                &repo.root,
+                &new,
+                message.lines().next().unwrap_or_default().trim(),
+            )?;
+            paths.push("CHANGELOG.md".into());
+            repo.write(
+                &[argv(&["add", "--"]), paths.iter().map(|p| os(p)).collect()].concat(),
+                None,
+                None,
+                None,
+            )?;
         }
         repo.write(
             &argv(&["commit", "-F", "-"]),
@@ -1044,6 +1076,8 @@ impl Repository {
             remotes,
             files,
             token: format!("{:016x}", hasher.finish()),
+            version: crate::version::current(&self.root),
+            versioning: crate::version::enabled(&self.metadata("hooks")?),
         })
     }
     fn checked(&mut self, token: &str) -> Result<RepoInfo> {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0 — 2026-10-11
+
+- Add Init repository and a per-repository version manager: hooks require a version bump and changelog entry for every code commit and tag each new version.
+- Add a version bump selector to the commit form that updates version files, lockfiles, and CHANGELOG.md.
+
 ## 0.2.0 — 2026-10-10
 
 - Add a persistent branch sidebar, named branch paths, history search, and commit details alongside the graph.

@@ -46,6 +46,15 @@ checksum are kept beside the extracted application. The toolbar displays the
 native application version. Repository data and saved drafts use the existing
 `com.gitgui.app` application profile.
 
+**Init repository** creates a repository with versioning enabled; **Enable
+versioning** in Changes adds it to an existing one. GitGUI installs pre-commit and
+post-commit hooks and adds `VERSION`, `CHANGELOG.md`, and an `AGENTS.md` section
+where missing. Commits that change code (anything but Markdown, `docs/`, and tests)
+must bump the version in `package.json`, `Cargo.toml`, or `VERSION` and add a
+changelog entry; each new version is tagged `v<version>`. The commit form's version
+selector does the bump, lockfile sync, and changelog entry for you, so command-line
+agents and GitGUI follow the same rule.
+
 The app remembers the last selected repository, offers the eight most recently
 opened repositories, and keeps commit drafts locally for each repository.
 Git remains responsible for credential helpers, SSH agents, hooks, and signing.
@@ -132,19 +141,20 @@ endpoint can stall on some Linux graphics setups, so it is not part of the workf
 
 `package.json` is the version source. Tauri reads it directly; the npm version
 hook synchronizes the Rust manifest and lockfile. Builds reject mismatched
-versions. Use Semantic Versioning: patch for fixes, minor for new features, and
-major for breaking changes. Record release changes in `CHANGELOG.md`.
+versions. Every commit that changes app code gets its own version (Semantic
+Versioning: patch for fixes, minor for features, major for breaking changes) and
+a `CHANGELOG.md` entry. `npm install` enables `.githooks`: pre-commit rejects
+app changes without a bump and changelog entry; post-commit tags `v<version>`.
 
 ```sh
-npm version patch --no-git-tag-version
-npm run version:check
+npm version minor --no-git-tag-version
+# add "## <version> — <date>" to CHANGELOG.md
+git add -A && git commit
 npm run tauri -- build --bundles appimage
 ```
 
-Review and commit the version/changelog changes, then create an annotated tag
-named `v<version>` on the verified release commit. Merge the release into the
-existing `master` branch. Keep versioned release filenames and checksums; point
-the desktop's `current` symlink at the new extracted release after verifying
+Merge the release into the existing `master` branch. Keep versioned release
+filenames and checksums; point the desktop's `current` symlink at the new extracted release after verifying
 startup. Retire obsolete launchers and binaries without deleting application
 profiles or repository files.
 

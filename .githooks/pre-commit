@@ -1,0 +1,10 @@
+#!/bin/sh
+# Every commit that changes app code must carry its own version bump and changelog entry.
+git diff --cached --name-only | grep -E '^src(-tauri/src)?/' | grep -qv '\.test\.ts$' || exit 0
+version() { node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version'; }
+new=$(git show :package.json | version)
+old=$(git show HEAD:package.json 2>/dev/null | version)
+fail() { echo "pre-commit: $1" >&2; exit 1; }
+[ "$new" != "$old" ] || fail "app code changed but version is still $old. Run: npm version minor --no-git-tag-version (patch for fixes, major for breaking changes), then git add -A"
+git show :CHANGELOG.md | grep -q "^## $new " || fail "CHANGELOG.md needs a staged '## $new — $(date +%F)' entry"
+npm run --silent version:check >/dev/null || fail "versions out of sync. Run: node scripts/version.mjs"

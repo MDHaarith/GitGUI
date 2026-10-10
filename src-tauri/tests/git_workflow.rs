@@ -94,7 +94,7 @@ fn unborn_unstage_preserves_content_and_first_commit_works() {
     assert!(unstaged.files[0].untracked);
     let staged = b.stage(info.id, &[id], false, &unstaged.token).unwrap();
     let committed = b
-        .commit(info.id, "First commit", &staged.token, false)
+        .commit(info.id, "First commit", &staged.token, false, None)
         .unwrap();
     assert!(committed.head.is_some());
     assert!(committed.files.is_empty());
@@ -139,7 +139,13 @@ fn commit_uses_only_index_and_keeps_unstaged_edits() {
         .text
         .contains("+new working edit"));
     let final_info = b
-        .commit(info.id, "Only the reviewed index", &staged.token, false)
+        .commit(
+            info.id,
+            "Only the reviewed index",
+            &staged.token,
+            false,
+            None,
+        )
         .unwrap();
     assert_eq!(cmd(&f.root, &["show", "HEAD:one"]), "staged version");
     assert_eq!(fs::read(f.root.join("one")).unwrap(), b"new working edit\n");
@@ -159,7 +165,7 @@ fn stale_token_and_invalid_inputs_fail_without_mutation() {
     cmd(&f.root, &["add", "one"]);
     let old_head = info.head.clone();
     assert!(b
-        .commit(info.id, "stale", &info.token, false)
+        .commit(info.id, "stale", &info.token, false, None)
         .unwrap_err()
         .contains("changed"));
     assert_eq!(b.status(info.id).unwrap().head, old_head);
@@ -196,7 +202,7 @@ fn paths_are_literal_and_non_utf8_names_remain_addressable() {
         assert_eq!(b.working_diff(info.id, id, false).unwrap().text, "data\n");
     }
     let staged = b.stage(info.id, &ids, false, &info.token).unwrap();
-    b.commit(info.id, "Literal filenames", &staged.token, false)
+    b.commit(info.id, "Literal filenames", &staged.token, false, None)
         .unwrap();
     assert!(b.status(info.id).unwrap().files.is_empty());
     for name in &names {
@@ -227,7 +233,9 @@ fn rename_unstage_keeps_working_tree_and_commit_diff_tracks_both_names() {
     assert!(!f.root.join("old name").exists());
     let ids: Vec<_> = next.files.iter().map(|file| file.id.clone()).collect();
     let next = b.stage(info.id, &ids, false, &next.token).unwrap();
-    let next = b.commit(info.id, "Rename", &next.token, false).unwrap();
+    let next = b
+        .commit(info.id, "Rename", &next.token, false, None)
+        .unwrap();
     let details = b
         .commit_details(info.id, next.head.as_deref().unwrap(), None)
         .unwrap();
@@ -262,7 +270,7 @@ fn failed_hook_leaves_staging_and_head_intact() {
     .unwrap();
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
     let error = b
-        .commit(info.id, "Must fail", &info.token, false)
+        .commit(info.id, "Must fail", &info.token, false, None)
         .unwrap_err();
     assert!(error.contains("fixture-hook-rejected"));
     let current = b.status(info.id).unwrap();
@@ -349,10 +357,16 @@ fn branch_creation_detached_head_and_worktree_switch_are_safe() {
     let id = current.files[0].id.clone();
     let current = b.stage(info.id, &[id], false, &current.token).unwrap();
     assert!(b
-        .commit(info.id, "no acknowledgment", &current.token, false)
+        .commit(info.id, "no acknowledgment", &current.token, false, None)
         .is_err());
     let current = b
-        .commit(info.id, "detached acknowledgment", &current.token, true)
+        .commit(
+            info.id,
+            "detached acknowledgment",
+            &current.token,
+            true,
+            None,
+        )
         .unwrap();
     let graph = b.graph(info.id, None, 200, None).unwrap();
     assert!(graph
@@ -520,4 +534,47 @@ fn credentials_are_redacted_from_remote_errors_and_labels() {
     );
     let (_, info) = f.open();
     assert!(!info.remotes[0].url.contains("secret"));
+}
+
+#[test]
+fn versioning_hooks_require_bumps_and_tag_new_versions() {
+    let f = Fixture::new();
+    let (mut b, info) = f.open();
+    assert!(!info.versioning && info.version.is_none());
+    let info = b.enable_versioning(info.id).unwrap();
+    assert!(info.versioning);
+    assert_eq!(info.version.as_deref(), Some("0.1.0"));
+    let stage_all = |b: &mut Backend, info: &RepoInfo| {
+        let ids: Vec<_> = info.files.iter().map(|f| f.id.clone()).collect();
+        b.stage(info.id, &ids, false, &info.token).unwrap()
+    };
+    let staged = stage_all(&mut b, &info);
+    let info = b
+        .commit(info.id, "Start", &staged.token, false, None)
+        .unwrap();
+    assert_eq!(cmd(&f.root, &["tag"]), "v0.1.0");
+
+    f.write("main.rs", b"fn main() {}\n");
+    let current = b.status(info.id).unwrap();
+    let staged = stage_all(&mut b, &current);
+    let error = b
+        .commit(info.id, "Add main", &staged.token, false, None)
+        .unwrap_err();
+    assert!(error.contains("version is still 0.1.0"), "{error}");
+    let staged = b.status(info.id).unwrap();
+    let info = b
+        .commit(
+            info.id,
+            "Add main",
+            &staged.token,
+            false,
+            Some("minor".into()),
+        )
+        .unwrap();
+    assert_eq!(info.version.as_deref(), Some("0.2.0"));
+    assert!(info.files.is_empty());
+    assert_eq!(cmd(&f.root, &["tag"]), "v0.1.0\nv0.2.0");
+    assert!(fs::read_to_string(f.root.join("CHANGELOG.md"))
+        .unwrap()
+        .contains("- Add main\n"));
 }
