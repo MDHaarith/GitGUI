@@ -23,15 +23,18 @@ app.innerHTML = `
     <symbol id="chrome-panel" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M14.5 4.5v15"/></symbol>
     <symbol id="chrome-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/></symbol>
     <symbol id="chrome-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="chrome-diamond" viewBox="0 0 24 24"><path d="m12 5 7 7-7 7-7-7z"/></symbol>
+    <symbol id="chrome-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
     <symbol id="chrome-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
   </defs></svg>
-  <header class="toolbar">
-    <span class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v10a4 4 0 0 0 4 4h1m5-14v2a5 5 0 0 1-5 5H7"/><circle cx="7" cy="5" r="2.5"/><circle cx="17" cy="5" r="2.5"/><circle cx="15" cy="19" r="2.5"/></svg>GitGUI<span class="app-version" id="app-version" hidden></span></span>
+  <header class="toolbar" data-tauri-drag-region>
+    <span class="brand" data-tauri-drag-region><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v10a4 4 0 0 0 4 4h1m5-14v2a5 5 0 0 1-5 5H7"/><circle cx="7" cy="5" r="2.5"/><circle cx="17" cy="5" r="2.5"/><circle cx="15" cy="19" r="2.5"/></svg>GitGUI<span class="app-version" id="app-version" hidden></span></span>
     <button class="secondary" id="open-repo">Open repository</button><button class="secondary" id="init-repo">Init repository</button>
     <select id="recent-repos" aria-label="Repository"><option value="">Recent repositories</option></select>
-    <span class="toolbar-status"><span id="status" role="status" aria-live="polite">Ready</span><span id="operation-feedback" hidden><progress id="operation-progress" aria-label="Git operation progress" max="100"></progress><span id="operation-elapsed"></span></span></span>
+    <span class="toolbar-status" data-tauri-drag-region><span id="status" role="status" aria-live="polite">Ready</span><span id="operation-feedback" hidden><progress id="operation-progress" aria-label="Git operation progress" max="100"></progress><span id="operation-elapsed"></span></span></span>
     <div class="toolbar-actions"><button id="publish" data-repo hidden title="Back up this project online: a new private GitHub repository or one you already made">Publish</button><button id="fetch" data-repo data-tip="Fetch: download news from the server without changing your files"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-fetch"/></svg>Fetch</button><button id="pull" data-repo data-tip="Pull: download the server's new commits into your branch"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-pull"/></svg>Pull<span class="count" id="behind-count" hidden></span></button><button id="push" data-repo data-tip="Push: upload your commits to the server (your backup)"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-push"/></svg>Push<span class="count" id="ahead-count" hidden></span></button>
     <button id="refresh" data-repo><svg class="chrome-icon" id="refresh-icon" aria-hidden="true"><use href="#chrome-refresh"/></svg>Refresh</button></div>
+    <div class="window-controls" id="window-controls" hidden><button id="window-minimize" aria-label="Minimize window"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-chevron"/></svg></button><button id="window-maximize" aria-label="Maximize or restore window"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-diamond"/></svg></button><button id="window-close" aria-label="Close window"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-close"/></svg></button></div>
   </header>
   <nav class="scopebar" aria-label="History and repository actions">
     <label class="muted" for="scope">Scope</label><select id="scope" data-repo><option value="">All branches</option></select>
@@ -255,7 +258,7 @@ function renderSummaryHint() {
   get('summary-hint').textContent = hint.text; get('summary-hint').classList.toggle('warning', hint.warning);
 }
 function notify(message: string) { get('status').textContent = message; }
-function report(error: unknown) { const why = explainError(String(error)); get('error-text').textContent = (why ? why + '\n\n' : '') + String(error).slice(0, 4000); get('error').hidden = false; notify('Operation failed. Review the message and refresh if needed.'); }
+function report(error: unknown) { const why = explainError(String(error)); get('error-text').textContent = (why ? why + '\n\n' : '') + String(error).slice(0, 4000); get('error').hidden = false; notify(why ?? String(error).split('\n')[0]); }
 function normal() { return !!repo && !repo.operation; }
 function stagedFiles() { return repo?.files.filter(file => file.index !== '.' && !file.untracked && !file.conflicted) ?? []; }
 function disable(id: string, reason: string) {
@@ -955,7 +958,13 @@ async function refreshWorkingPreview(quiet = false) {
   const id = repo.id; const request = ++workingRequest;
   get('working-path').textContent = (selection.staged ? 'Staged · ' : 'Working tree · ') + file.path;
   if (!quiet) get('working-diff').textContent = 'Reading diff…';
-  const preview = await readDetail(api.workingDiff(id, file.id, selection.staged));
+  let preview: Awaited<ReturnType<typeof api.workingDiff>>;
+  try { preview = await readDetail(api.workingDiff(id, file.id, selection.staged)); }
+  catch (error) {
+    // The file list went stale (saved, committed, or reverted elsewhere): reload it instead of showing an error.
+    if (!/File changed/.test(String(error)) || repo?.id !== id) throw error;
+    await refresh(); return;
+  }
   if (repo?.id === id && request === workingRequest) previewInto('working-diff', preview);
 }
 async function mutate(label: string, action: () => Promise<RepoInfo>, committed = false) {
@@ -1126,6 +1135,10 @@ async function checkForChanges() {
 window.addEventListener('focus', () => { focusCheck ??= checkForChanges().then(() => autoCheckpoint()).finally(() => { focusCheck = null; }); });
 updateControls();
 if (isTauri()) {
+  get('window-controls').hidden = false;
+  button('window-minimize').onclick = () => { void getCurrentWindow().minimize(); };
+  button('window-maximize').onclick = () => { void getCurrentWindow().toggleMaximize(); };
+  button('window-close').onclick = () => { void getCurrentWindow().close(); };
   void getVersion().then(version => { get('app-version').textContent = 'v' + version; get('app-version').hidden = false; }).catch(report);
   void getCurrentWindow().onCloseRequested(async event => {
     if (writing) { event.preventDefault(); await nativeMessage('A Git operation is still running. Wait for it to finish before closing GitGUI.', { title: 'Git operation in progress', kind: 'info' }); }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0 — 2026-10-11
+- Replace the native title bar with built-in window controls in the toolbar.
+- Reload the changes list instead of showing "File changed" when a selected file went stale.
+- Show the actual error in the status line instead of a generic "Operation failed".
+- Style the error banner like the tip cards.
+
 ## 0.10.2 — 2026-10-11
 - Keep toolbar actions on the same row; a long status message truncates instead of pushing them down.
 
