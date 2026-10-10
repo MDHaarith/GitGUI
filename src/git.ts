@@ -5,7 +5,7 @@ export interface Commit { oid: string; shortOid: string; parents: string[]; subj
 export interface GraphPage { graphId: number; commits: Commit[]; refs: RefInfo[]; head: string | null; hasMore: boolean }
 export interface FileInfo { id: string; path: string; oldPath: string | null; oldId: string | null; index: string; worktree: string; untracked: boolean; conflicted: boolean; submodule: boolean }
 export interface RemoteInfo { id: string; name: string; url: string }
-export interface RepoInfo { id: number; root: string; branch: string | null; head: string | null; detached: boolean; upstream: string | null; ahead: number; behind: number; operation: string | null; remotes: RemoteInfo[]; files: FileInfo[]; token: string }
+export interface RepoInfo { id: number; root: string; branch: string | null; head: string | null; detached: boolean; upstream: string | null; ahead: number; behind: number; operation: string | null; remotes: RemoteInfo[]; files: FileInfo[]; token: string; refsToken: string }
 export interface Preview { text: string; truncated: boolean; binary: boolean }
 export interface CommitFile { id: string; path: string; oldPath: string | null; oldId: string | null; status: string }
 export interface CommitDetails { oid: string; parents: string[]; author: string; email: string; timestamp: number; message: string; parent: string | null; files: CommitFile[]; shallow: boolean }

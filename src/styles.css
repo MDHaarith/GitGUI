@@ -184,6 +184,9 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .file-row.selected { background: var(--surface-3); border-radius: 6px; }
 .file-row input { accent-color: var(--accent); }
 .file-row button { height: 32px; text-align: left; flex: 1; min-width: 0; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 400; }
+.file-row .row-action { flex: none; height: 26px; padding: 0 8px; font-size: 11px; color: var(--muted); opacity: 0; }
+.file-row:hover .row-action, .file-row:focus-within .row-action, .file-row.selected .row-action { opacity: 1; }
+.file-row .row-action:hover:not(:disabled) { color: var(--ink-muted); background: var(--surface-3); }
 .file-kind { font: 11px 'Geist Mono', monospace; color: var(--muted); }
 .working-preview { min-width: 0; overflow: auto; padding: 16px; }
 .preview-label { color: var(--muted); font-size: 12px; margin-bottom: 12px; overflow-wrap: anywhere; }
@@ -191,6 +194,9 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .composer input, .composer textarea { width: 100%; font-size: 13px; }
 .composer textarea { min-height: 64px; flex: 1; }
 .composer label { font-size: 12px; }
+.label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.summary-hint { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.summary-hint.warning { color: #d6b57d; }
 .composer .commit-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .composer #staged-count { color: var(--muted); font-size: 11px; }
 .composer .primary { font-size: 12px; padding-inline: 12px; flex-shrink: 0; }
@@ -209,6 +215,7 @@ dialog::backdrop { background: rgb(0 0 0 / .75); }
 .dialog-head form { flex-shrink: 0; }
 .metadata { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .metadata input { font: 11px 'Geist Mono', monospace; min-width: 100px; flex: 1; }
+.metadata .chip { height: 30px; padding: 0 10px; font-size: 12px; }
 .message { color: var(--ink-muted); font: inherit; white-space: pre-wrap; max-height: 120px; overflow: auto; }
 .parents { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin: 12px 0; }
 .parents button { color: var(--accent-hover); font: 12px 'Geist Mono', monospace; padding: 0 8px; }
@@ -279,6 +286,7 @@ dialog::backdrop { background: rgb(0 0 0 / .75); }
   .toolbar button, .scopebar button, .branch-sidebar button, .primary, dialog button { min-height: 44px; }
   input:not([type="checkbox"]), select, textarea { min-height: 44px; }
   .file-row, .file-row button, .file-group-title button { min-height: 44px; }
+  .file-row .row-action { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   #refresh-icon.spinning { animation: none; }

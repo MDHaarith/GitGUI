@@ -87,6 +87,7 @@ pub struct RepoInfo {
     pub remotes: Vec<RemoteInfo>,
     pub files: Vec<FileInfo>,
     pub token: String,
+    pub refs_token: String,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Preview {
@@ -1031,6 +1032,20 @@ impl Repository {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.to_string()),
         }
+        // Branch, tag, and remote-tracking moves change history without touching the index.
+        let mut refs_hasher = std::collections::hash_map::DefaultHasher::new();
+        read(
+            &self.root,
+            &argv(&[
+                "for-each-ref",
+                "--format=%(refname)%00%(objectname)",
+                "refs/heads",
+                "refs/remotes",
+                "refs/tags",
+            ]),
+        )?
+        .hash(&mut refs_hasher);
+        head.hash(&mut refs_hasher);
         Ok(RepoInfo {
             id: self.id,
             root: text(raw(self.root.as_os_str())),
@@ -1044,6 +1059,7 @@ impl Repository {
             remotes,
             files,
             token: format!("{:016x}", hasher.finish()),
+            refs_token: format!("{:016x}", refs_hasher.finish()),
         })
     }
     fn checked(&mut self, token: &str) -> Result<RepoInfo> {

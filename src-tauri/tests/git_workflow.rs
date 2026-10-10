@@ -521,3 +521,18 @@ fn credentials_are_redacted_from_remote_errors_and_labels() {
     let (_, info) = f.open();
     assert!(!info.remotes[0].url.contains("secret"));
 }
+
+#[test]
+fn refs_token_tracks_ref_moves_that_leave_the_index_alone() {
+    let f = Fixture::new();
+    let base = f.commit("base", "base", "root");
+    let (mut b, info) = f.open();
+    let unchanged = b.status(info.id).unwrap();
+    assert_eq!(unchanged.refs_token, info.refs_token);
+    cmd(&f.root, &["tag", "v1"]);
+    let tagged = b.status(info.id).unwrap();
+    assert_eq!(tagged.token, info.token);
+    assert_ne!(tagged.refs_token, info.refs_token);
+    cmd(&f.root, &["branch", "side", &base]);
+    assert_ne!(b.status(info.id).unwrap().refs_token, tagged.refs_token);
+}
