@@ -184,7 +184,7 @@ Done when two disposable clones exchange commits through a local bare remote; fe
 
 Check keyboard/focus behavior, theme, narrow layouts, large repositories, and the actual packaged app. Start with Fedora x86-64 RPM, test launch and the commit workflow outside the dev server, and document the supported environment. Tauri requires distribution-specific WebKitGTK and other native dependencies. [Linux prerequisites](https://v2.tauri.app/start/prerequisites/), [RPM packaging](https://v2.tauri.app/distribute/rpm/)
 
-Add an AppImage and Ubuntu/Debian coverage once those environments are tested. Build broader Linux packages on an appropriate oldest-supported base; do not promise compatibility from a Fedora build alone. [AppImage distribution](https://v2.tauri.app/distribute/appimage/)
+Ship an x86-64 AppImage alongside the Fedora RPM. Verify both on Fedora; Ubuntu/Debian coverage remains pending. Build broader Linux packages on an appropriate oldest-supported base; do not promise compatibility from a Fedora build alone. [AppImage distribution](https://v2.tauri.app/distribute/appimage/)
 
 Release checks: frontend type-check/build, Rust formatting/Clippy/tests, dependency audits, and a packaged-app smoke test. Include deterministic graph layout checks and real-repository fixtures for DAG/ref parsing, pagination, path handling, index preservation, failed hooks, and safe branch/remote behavior. Do not contact a user's remote or mutate a user's repository during automated tests.
 

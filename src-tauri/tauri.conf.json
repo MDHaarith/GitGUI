@@ -18,7 +18,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["rpm"],
+    "targets": ["appimage", "rpm"],
     "category": "DeveloperTool",
     "shortDescription": "Visual Git history and everyday repository workflows",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png"],
