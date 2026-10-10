@@ -31,3 +31,25 @@ The installed design AppImage is
 are kept under this repository's ignored `artifacts` directory. Other GitGUI
 AppImages and shortcuts were left alone; open windows keep their old binary
 until closed. No changes were pushed to a remote.
+
+## Packaging on this desktop
+
+AppImageLauncher's binfmt handler can intercept packaging tools launched from
+T3. A normal `tauri bundle` can report success without producing a file: always
+check that the output exists. The working fallback uses the already-installed
+bypass and cached linuxdeploy after `tauri build` has produced the release binary.
+Run from `src-tauri/target/release/bundle/appimage`:
+
+```sh
+rtk proxy env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD \
+  -u ELECTRON_RUN_AS_NODE -u LD_LIBRARY_PATH \
+  LD_PRELOAD=/opt/appimagelauncher.AppDir/usr/lib/x86_64-linux-gnu/appimagelauncher/libbinfmt-bypass-preload.so \
+  /opt/appimagelauncher.AppDir/usr/lib/x86_64-linux-gnu/appimagelauncher/binfmt-bypass \
+  /home/mdhaarith/.cache/tauri/linuxdeploy-07333c6-x86_64.AppImage \
+  --appdir "$PWD/GitGUI.AppDir" --plugin gtk --output appimage
+```
+
+This produces `GitGUI-x86_64.AppImage`; rename it to the README's standard
+`GitGUI_0.1.0_amd64.AppImage` before updating the installed copy. Deployment logs,
+SHA-256 checks, backup location, and the launched PID are recorded in
+`artifacts/linuxdeploy-direct.log` and `artifacts/appimage-update.json`.
