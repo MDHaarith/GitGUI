@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.10.1 — 2026-10-11
+- Keep the history graph trunk in one straight column; branches that are only ahead change color instead of shifting right.
+
 ## 0.10.0 — 2026-10-11
 
 - Returning to the window quietly checks for changes and reloads history only when the status, branches, tags, or remotes moved.

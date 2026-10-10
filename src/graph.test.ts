@@ -6,12 +6,13 @@ import type { RefInfo } from './git.ts';
 const commit = (oid: string, parents: string[] = []) => ({ oid, shortOid: oid, parents, subject: oid, author: 'Test', timestamp: 0, shallow: false });
 const branch = (name: string, target: string, kind: RefInfo['kind'] = 'local'): RefInfo => ({ id: name, name, fullName: 'refs/' + (kind === 'local' ? 'heads/' : kind === 'remote' ? 'remotes/' : 'tags/') + name, kind, target, isHead: false });
 
-test('GUI, review, and master keep three separate branch columns at a shared ancestor', () => {
+test('GUI, review, and master keep distinct colors and the GUI trunk runs straight into master', () => {
   const data = [commit('gui', ['master']), commit('review', ['review-old']), commit('review-old', ['master']), commit('master', ['root']), commit('root')];
   const refs = [branch('GUI-with-DESIGN.md', 'gui'), branch('chore/review-improvements', 'review'), branch('master', 'master')];
   const result = layoutHistory(data, refs);
   const tips = [result.rows[0], result.rows[1], result.rows[3]];
-  assert.equal(new Set(tips.map(row => row.lane)).size, 3);
+  assert.equal(result.lanes, 2);
+  assert.equal(result.rows[0].lane, result.rows[3].lane);
   assert.equal(new Set(tips.map(row => row.color)).size, 3);
   assert.equal(result.rows[0].outgoing[0].lane, result.rows[3].lane);
   assert.equal(result.rows[2].outgoing[0].lane, result.rows[3].lane);
@@ -19,11 +20,11 @@ test('GUI, review, and master keep three separate branch columns at a shared anc
   assert.deepEqual(result.pending, []);
 });
 
-test('a branch ahead of another branch gets a separate colored path with the real parent edge', () => {
+test('a branch ahead of another branch stays in the same column with its own color', () => {
   const data = [commit('feature', ['main']), commit('main', ['root']), commit('root')];
   const result = layoutHistory(data, [branch('feature', 'feature'), branch('main', 'main')]);
-  assert.equal(result.lanes, 2);
-  assert.notEqual(result.rows[0].lane, result.rows[1].lane);
+  assert.equal(result.lanes, 1);
+  assert.equal(result.rows[0].lane, result.rows[1].lane);
   assert.notEqual(result.rows[0].color, result.rows[1].color);
   assert.equal(result.rows[1].color, result.rows[2].color);
   assert.equal(result.rows[0].outgoing[0].parent, 'main');
@@ -50,7 +51,7 @@ test('aliases share paths, tags add no lanes, and unseen unrelated refs add no i
   const unrelated = layoutHistory(data, [...refs, branch('unloaded', 'unseen')]);
   assert.equal(unrelated.rows.length, data.length);
   assert.deepEqual(unrelated.pending, []);
-  assert.equal(unrelated.lanes, 2);
+  assert.equal(unrelated.lanes, 1);
 });
 
 test('named merge parents keep distinct colors and reconnect at their shared ancestor', () => {

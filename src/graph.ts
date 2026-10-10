@@ -23,8 +23,7 @@ export function layoutHistory(commits: Commit[], refs: RefInfo[] = []): Layout {
   const rows: LayoutRow[] = [];
   let lanes = 0;
   const seen = new Set<string>();
-  const reserved = new Set<number>();
-  const available = (exclude = -1) => { const vacancy = active.findIndex((parent, index) => parent === null && index !== exclude && !reserved.has(index)); return vacancy < 0 ? active.length : vacancy; };
+  const available = () => { const vacancy = active.indexOf(null); return vacancy < 0 ? active.length : vacancy; };
   let nextColor = tips.size;
   const newColor = () => laneColors[nextColor++ % laneColors.length];
   const color = (lane: number) => colors[lane];
@@ -35,7 +34,6 @@ export function layoutHistory(commits: Commit[], refs: RefInfo[] = []): Layout {
     const expected = active.indexOf(commit.oid);
     const lane = expected < 0 ? available() : expected;
     if (expected < 0) colors[lane] = tips.get(commit.oid) ?? newColor();
-    if (tips.has(commit.oid)) reserved.add(lane);
     const nodeColor = color(lane);
     const through = active.flatMap((parent, index) => parent && index !== lane ? [{ lane: index, color: color(index), parent }] : []);
     active[lane] = null;
@@ -43,12 +41,10 @@ export function layoutHistory(commits: Commit[], refs: RefInfo[] = []): Layout {
     for (const [index, parent] of [...new Set(commit.parents)].entries()) {
       let destination = active.indexOf(parent);
       if (destination < 0) {
-        // A named parent starts its own path even when the newer branch is only ahead.
-        const branchTip = tips.has(parent);
-        destination = index === 0 && !branchTip && active[lane] === null ? lane : available(branchTip ? lane : -1);
+        // First parents stay in the column so the trunk runs straight; a named parent only changes color.
+        destination = index === 0 && active[lane] === null ? lane : available();
         active[destination] = parent;
         colors[destination] = tips.get(parent) ?? (index === 0 ? nodeColor : newColor());
-        if (branchTip) reserved.add(destination);
       }
       outgoing.push({ lane: destination, color: index === 0 ? nodeColor : color(destination), parent });
     }
