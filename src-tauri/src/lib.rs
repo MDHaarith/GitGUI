@@ -376,6 +376,14 @@ async fn ask_claude(
         .map_err(|e| format!("Claude task failed: {e}"))?
 }
 #[tauri::command]
+fn get_ai_provider() -> assist::Provider {
+    assist::public_provider()
+}
+#[tauri::command]
+fn save_ai_provider(provider: assist::Provider) -> git::Result<()> {
+    assist::save_provider(provider)
+}
+#[tauri::command]
 async fn set_api_key(key: String) -> git::Result<()> {
     assist::save_key(&key)
 }
@@ -440,6 +448,8 @@ pub fn run() {
             save_agent_rules,
             ask_claude,
             set_api_key,
+            get_ai_provider,
+            save_ai_provider,
             run_project,
             stop_project
         ])

@@ -13,7 +13,8 @@ export interface CommitDetails { oid: string; parents: string[]; author: string;
 export interface Checkpoint { oid: string; timestamp: number; label: string; summary: string }
 export interface SessionFile { path: string; status: string; added: number; deleted: number }
 export interface Session { checkpoint: Checkpoint | null; files: SessionFile[] }
-export interface Answer { text: string; inputTokens: number; outputTokens: number }
+export interface Answer { text: string; inputTokens: number; outputTokens: number; provider: string }
+export interface AiProvider { kind: 'claude' | 'openai' | 'command'; baseUrl: string; model: string; apiKey: string; command: string }
 
 export const api = {
   startup: () => invoke<string | null>('startup_path'),
@@ -50,6 +51,8 @@ export const api = {
   agentRules: (repoId: number) => invoke<string>('get_agent_rules', { repoId }),
   saveAgentRules: (repoId: number, rules: string) => invoke<null>('save_agent_rules', { repoId, rules }),
   ask: (repoId: number, request: 'explain' | 'message' | 'conflict', scope: string) => invoke<Answer>('ask_claude', { repoId, request, scope }),
+  aiProvider: () => invoke<AiProvider>('get_ai_provider'),
+  saveAiProvider: (provider: AiProvider) => invoke<null>('save_ai_provider', { provider }),
   setApiKey: (key: string) => invoke<null>('set_api_key', { key }),
   runProject: (repoId: number, output: (line: string) => void) => invoke<string>('run_project', { repoId, onOutput: new Channel<string>(output) }),
   stopProject: () => invoke<null>('stop_project'),

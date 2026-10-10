@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0 — 2026-10-11
+
+- AI settings: choose Claude, DeepSeek, OpenAI, OpenRouter, Groq, Ollama, any OpenAI-compatible API, or a command-line agent (Codex, Claude Code, opencode, or any command).
+
 ## 0.7.0 — 2026-10-11
 
 - Rename and delete local branches from the Branches dialog; unmerged branches need a second confirmation.

@@ -96,6 +96,13 @@ the app (`~/.config/com.gitgui.app/anthropic-key`, mode 0600), or `ant auth`.
 Changes over about 100k tokens are refused rather than cut. The dialog shows each
 answer's tokens and cost and a running total.
 
+**AI settings** switches the provider: DeepSeek, OpenAI, OpenRouter, Groq, Ollama,
+or any OpenAI-compatible `/chat/completions` API (address, model, key), or a
+command-line agent such as `codex exec -`, `claude -p`, or `opencode run` that reads
+the request on stdin. Agents run in an empty temporary folder for up to 10 minutes,
+so they cannot edit the project. Settings live in
+`~/.config/com.gitgui.app/ai-provider.json` (mode 0600); only Claude answers are priced.
+
 **Try something risky** starts a `try/<name>` branch; **Keep it** merges it back
 with a merge commit, **Throw it away** deletes it after saving a checkpoint.
 **Publish to GitHub** runs `gh repo create --private --push`. Conflicted files get

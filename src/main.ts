@@ -2,7 +2,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { open, confirm, message as nativeMessage } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { api, type Answer, type Checkpoint, type Session, type SessionFile, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo } from './git.ts';
+import { api, type AiProvider, type Answer, type Checkpoint, type Session, type SessionFile, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo } from './git.ts';
 import { findCommits, layoutHistory, paintGraph, type Layout } from './graph.ts';
 import { numberDiff } from './diff.ts';
 import { wireDropdown } from './dropdown.ts';
@@ -86,7 +86,7 @@ app.innerHTML = `
         <form class="composer" id="commit-form">
           <label for="summary">Summary</label><input id="summary" required maxlength="1000" autocomplete="off" placeholder="Describe this commit">
           <label for="body">Description <span class="muted">(optional)</span></label><textarea id="body" maxlength="64000" rows="3"></textarea>
-          <div class="commit-row"><button type="button" id="ai-message" data-repo title="Let Claude write the commit message from the staged changes">Write message with AI</button><button type="button" id="ai-explain" data-repo title="Let Claude explain the staged changes in plain English">Explain staged changes</button></div>
+          <div class="commit-row"><button type="button" id="ai-message" data-repo title="Let the AI write the commit message from the staged changes">Write message with AI</button><button type="button" id="ai-explain" data-repo title="Let the AI explain the staged changes in plain English">Explain staged changes</button><button type="button" id="ai-settings" title="Choose Claude, DeepSeek, OpenAI, Ollama, Codex, opencode, or any other AI">AI settings</button></div>
           <div class="commit-row"><span id="version-controls"><label for="bump">Version <span class="mono" id="repo-version"></span></label> <select id="bump" data-repo><option value="minor">Minor · feature</option><option value="patch">Patch · fix</option><option value="major">Major · breaking</option><option value="">No bump</option></select></span><button id="enable-versioning" data-repo title="Block secrets and failing tests, and give every code commit its own version">Enable safeguards</button></div>
           <div class="commit-row"><span id="staged-count">0 staged files</span><button class="primary" id="commit-button" type="submit" data-repo>Commit staged</button></div>
         </form>
@@ -131,8 +131,16 @@ app.innerHTML = `
     <form id="rules-form" class="form-grid"><p class="muted">Claude Code, Codex, Cursor and other agents read these rules before changing your project. GitGUI also links them from CLAUDE.md.</p><textarea id="rules-text" rows="16" maxlength="200000" aria-label="Rules for AI agents"></textarea><div class="row"><button type="button" id="rules-starter">Add starter rules</button><button class="primary" type="submit">Save rules</button></div></form>
   </dialog>
   <dialog class="branch-dialog wide-dialog" id="ai-dialog" aria-labelledby="ai-title">
-    <div class="dialog-head"><h2 id="ai-title">Claude</h2><form method="dialog"><button type="submit">Close</button></form></div>
-    <form id="key-form" class="form-grid" hidden><label for="api-key">Claude API key</label><input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-…"><p class="muted">Create a key at console.anthropic.com. It is stored only on this computer, readable by your user alone.</p><div class="row"><button class="primary" type="submit">Save key</button></div></form>
+    <div class="dialog-head"><h2 id="ai-title">AI</h2><span class="spacer"></span><button type="button" id="ai-settings-open">AI settings</button><form method="dialog"><button type="submit">Close</button></form></div>
+    <form id="key-form" class="form-grid" hidden>
+      <label for="ai-preset">AI provider</label><select id="ai-preset"></select>
+      <label for="ai-base-url" data-ai="openai">API address</label><input id="ai-base-url" data-ai="openai" autocomplete="off" placeholder="https://api.example.com/v1">
+      <label for="ai-model" data-ai="openai">Model</label><input id="ai-model" data-ai="openai" autocomplete="off" placeholder="model name">
+      <label for="ai-command" data-ai="command">Command (reads the request on stdin, prints the answer)</label><input id="ai-command" data-ai="command" autocomplete="off" placeholder="codex exec -">
+      <label for="api-key" data-ai="claude openai">API key</label><input id="api-key" data-ai="claude openai" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key">
+      <p class="muted" id="ai-provider-note"></p>
+      <div class="row"><button class="primary" type="submit">Save AI settings</button></div>
+    </form>
     <pre class="message ai-answer" id="ai-answer"></pre><p class="muted" id="ai-usage"></p>
   </dialog>
   <dialog class="branch-dialog wide-dialog" id="help-dialog" aria-labelledby="help-title">
@@ -140,7 +148,7 @@ app.innerHTML = `
     <ol class="tour">
       <li><strong>New project:</strong> Init repository creates one with safeguards: secrets and failing tests are blocked and every feature gets its own version.</li>
       <li><strong>Before asking an AI to change things:</strong> save a Checkpoint, or use Try something risky for big ideas.</li>
-      <li><strong>After the AI is done:</strong> Review AI changes shows every changed file, riskiest first. Undo single files, or let Claude explain them.</li>
+      <li><strong>After the AI is done:</strong> Review AI changes shows every changed file, riskiest first. Undo single files, or let the AI explain them. Pick Claude, DeepSeek, OpenAI, Ollama, Codex, opencode, or any other AI in AI settings.</li>
       <li><strong>Happy with it?</strong> In Changes, stage the files, press Write message with AI, choose a version, and Commit.</li>
       <li><strong>Back it up:</strong> Publish to GitHub once, then Push after each commit.</li>
       <li><strong>Something broke?</strong> Run shows your app's output and explains common crashes; Checkpoints and Undo last commit take you back.</li>
@@ -663,28 +671,71 @@ async function undoCommit() {
   await mutate('Undoing last commit…', () => api.undoCommit(repo!.id, repo!.token));
 }
 
+interface Preset { label: string; provider: AiProvider; note: string }
+const PRESETS: Record<string, Preset> = {
+  claude: { label: 'Claude (Anthropic)', provider: { kind: 'claude', baseUrl: '', model: '', apiKey: '', command: '' }, note: 'Uses claude-opus-5-5. Key from console.anthropic.com, or ANTHROPIC_API_KEY.' },
+  deepseek: { label: 'DeepSeek', provider: { kind: 'openai', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKey: '', command: '' }, note: 'Key from platform.deepseek.com.' },
+  openai: { label: 'OpenAI', provider: { kind: 'openai', baseUrl: 'https://api.openai.com/v1', model: '', apiKey: '', command: '' }, note: 'Key from platform.openai.com. Enter a model name.' },
+  openrouter: { label: 'OpenRouter (many models)', provider: { kind: 'openai', baseUrl: 'https://openrouter.ai/api/v1', model: '', apiKey: '', command: '' }, note: 'Key from openrouter.ai. Model names look like vendor/model.' },
+  groq: { label: 'Groq', provider: { kind: 'openai', baseUrl: 'https://api.groq.com/openai/v1', model: '', apiKey: '', command: '' }, note: 'Key from console.groq.com.' },
+  ollama: { label: 'Ollama (local, free)', provider: { kind: 'openai', baseUrl: 'http://localhost:11434/v1', model: 'llama3.2', apiKey: '', command: '' }, note: 'Runs on your computer; no key needed. Pull the model with ollama pull first.' },
+  api: { label: 'Other OpenAI-compatible API', provider: { kind: 'openai', baseUrl: '', model: '', apiKey: '', command: '' }, note: 'Any service with an OpenAI-style /chat/completions endpoint (LM Studio, Together, Mistral, xAI…).' },
+  codex: { label: 'Codex CLI', provider: { kind: 'command', baseUrl: '', model: '', apiKey: '', command: 'codex exec --skip-git-repo-check -' }, note: 'Uses your Codex login. Agents run in an empty temporary folder, so they cannot edit your project.' },
+  claudecode: { label: 'Claude Code CLI', provider: { kind: 'command', baseUrl: '', model: '', apiKey: '', command: 'claude -p' }, note: 'Uses your Claude Code login. Runs in an empty temporary folder.' },
+  opencode: { label: 'opencode CLI', provider: { kind: 'command', baseUrl: '', model: '', apiKey: '', command: 'opencode run "$(cat)"' }, note: 'Uses your opencode setup. Runs in an empty temporary folder.' },
+  command: { label: 'Other command-line agent', provider: { kind: 'command', baseUrl: '', model: '', apiKey: '', command: '' }, note: 'Any command that reads the request on stdin and prints the answer. Runs in an empty temporary folder, for up to 10 minutes.' },
+};
+function presetFor(provider: AiProvider) {
+  return Object.keys(PRESETS).find(key => { const p = PRESETS[key].provider; return p.kind === provider.kind && p.baseUrl === provider.baseUrl && p.command === provider.command; })
+    ?? (provider.kind === 'command' ? 'command' : provider.kind === 'openai' ? 'api' : 'claude');
+}
+function showProviderFields() {
+  const preset = PRESETS[select('ai-preset').value];
+  document.querySelectorAll<HTMLElement>('#key-form [data-ai]').forEach(node => { node.hidden = !node.dataset.ai!.split(' ').includes(preset.provider.kind); });
+  get('ai-provider-note').textContent = preset.note;
+}
+select('ai-preset').replaceChildren(...Object.entries(PRESETS).map(([key, preset]) => option(key, preset.label)));
+select('ai-preset').onchange = () => {
+  const preset = PRESETS[select('ai-preset').value].provider;
+  input('ai-base-url').value = preset.baseUrl; input('ai-model').value = preset.model; input('ai-command').value = preset.command; input('api-key').value = '';
+  showProviderFields();
+};
 function recordUsage(answer: Answer) {
   let usage = { calls: 0, input: 0, output: 0 };
   try { usage = { ...usage, ...JSON.parse(stored('aiUsage') ?? '{}') }; } catch { /* Start a fresh log. */ }
-  usage.calls++; usage.input += answer.inputTokens; usage.output += answer.outputTokens; save('aiUsage', JSON.stringify(usage));
-  get('ai-usage').textContent = `This answer: ${answer.inputTokens + answer.outputTokens} tokens, about $${aiCost(answer.inputTokens, answer.outputTokens).toFixed(3)}. All GitGUI AI requests: ${usage.calls}, about $${aiCost(usage.input, usage.output).toFixed(2)}.`;
+  usage.calls++;
+  // Only Claude requests are priced; other providers charge different rates.
+  if (answer.provider === 'claude') { usage.input += answer.inputTokens; usage.output += answer.outputTokens; }
+  save('aiUsage', JSON.stringify(usage));
+  const tokens = answer.inputTokens + answer.outputTokens;
+  get('ai-usage').textContent = `Answered by ${answer.provider}` + (tokens ? ` · ${tokens} tokens` : '') + (answer.provider === 'claude' ? `, about $${aiCost(answer.inputTokens, answer.outputTokens).toFixed(3)}` : '')
+    + `. All GitGUI AI requests: ${usage.calls}` + (usage.input ? `, Claude about $${aiCost(usage.input, usage.output).toFixed(2)}` : '') + '.';
 }
-function showKeyForm() {
-  get('ai-title').textContent = 'Connect Claude'; get('key-form').hidden = false; get('ai-answer').textContent = ''; get('ai-usage').textContent = '';
-  input('api-key').value = ''; if (!dialog('ai-dialog').open) dialog('ai-dialog').showModal(); input('api-key').focus();
+async function showKeyForm() {
+  const provider = await api.aiProvider().catch(() => PRESETS.claude.provider);
+  select('ai-preset').value = presetFor(provider);
+  input('ai-base-url').value = provider.baseUrl; input('ai-model').value = provider.model; input('ai-command').value = provider.command; input('api-key').value = '';
+  showProviderFields();
+  get('ai-title').textContent = 'AI settings'; get('key-form').hidden = false; get('ai-answer').textContent = ''; get('ai-usage').textContent = '';
+  if (!dialog('ai-dialog').open) dialog('ai-dialog').showModal(); select('ai-preset').focus();
 }
 async function saveKey() {
-  try { await api.setApiKey(input('api-key').value); input('api-key').value = ''; get('key-form').hidden = true; get('ai-answer').textContent = 'Key saved. Run your request again.'; }
-  catch (error) { report(error); }
+  try {
+    const kind = PRESETS[select('ai-preset').value].provider.kind;
+    const key = input('api-key').value.trim();
+    await api.saveAiProvider({ kind, baseUrl: input('ai-base-url').value, model: input('ai-model').value, apiKey: kind === 'openai' ? key : '', command: input('ai-command').value });
+    if (kind === 'claude' && key) await api.setApiKey(key);
+    input('api-key').value = ''; get('key-form').hidden = true; get('ai-answer').textContent = 'AI settings saved. Run your request again.';
+  } catch (error) { report(error); }
 }
-/** Asks Claude; returns null after showing the key form when no working key is set. */
+/** Asks the chosen AI; returns null after showing AI settings when no working key is set. */
 async function ask(request: 'explain' | 'message' | 'conflict', scope: string): Promise<Answer | null> {
   try { const answer = await api.ask(repo!.id, request, scope); recordUsage(answer); return answer; }
-  catch (error) { if (/No Claude API key|x-api-key|authentication/i.test(String(error))) { showKeyForm(); notify('Add a Claude API key to use AI features'); return null; } throw error; }
+  catch (error) { if (/No Claude API key|x-api-key|authentication|unauthorized|invalid api key|incorrect api key/i.test(String(error))) { void showKeyForm(); notify('Check your AI settings'); return null; } throw error; }
 }
 async function explainChanges(scope: string, title: string) {
   if (!repo || busy) return;
-  await run('Claude is reading the changes…', async () => {
+  await run('The AI is reading the changes…', async () => {
     const answer = await ask(scope.startsWith('conflict:') ? 'conflict' : 'explain', scope); if (!answer) return;
     get('ai-title').textContent = title; get('key-form').hidden = true; get('ai-answer').textContent = answer.text;
     if (!dialog('ai-dialog').open) dialog('ai-dialog').showModal(); notify('Ready');
@@ -692,7 +743,7 @@ async function explainChanges(scope: string, title: string) {
 }
 async function writeMessage() {
   if (!repo || busy) return;
-  await run('Claude is writing the commit message…', async () => {
+  await run('The AI is writing the commit message…', async () => {
     const answer = await ask('message', 'staged'); if (!answer) return;
     const [summary, ...rest] = answer.text.split('\n');
     input('summary').value = summary.trim(); get<HTMLTextAreaElement>('body').value = rest.join('\n').trim(); saveDraft();
@@ -820,7 +871,7 @@ function renderFiles() {
           action.setAttribute('aria-label', label + ' for ' + file.path);
           action.addEventListener('click', () => { if (repo) void mutate('Resolving ' + file.path + '…', () => api.resolveConflict(repo!.id, file.id, choice, repo!.token)); }); row.append(action);
         }
-        const explain = document.createElement('button'); explain.type = 'button'; explain.textContent = 'Explain'; explain.title = 'Let Claude explain both sides of this conflict'; explain.disabled = busy;
+        const explain = document.createElement('button'); explain.type = 'button'; explain.textContent = 'Explain'; explain.title = 'Let the AI explain both sides of this conflict'; explain.disabled = busy;
         explain.addEventListener('click', () => { void explainChanges('conflict:' + file.id, 'Conflict in ' + file.path); }); row.append(explain);
       }
       list.append(row);
@@ -956,6 +1007,8 @@ button('operation-continue').onclick = () => { if (repo) void mutate('Continuing
 button('operation-abort').onclick = () => { void abortOperation(); };
 button('undo-commit').onclick = () => { void undoCommit(); };
 button('ai-message').onclick = () => { void writeMessage(); };
+button('ai-settings').onclick = () => { void showKeyForm(); };
+button('ai-settings-open').onclick = () => { void showKeyForm(); };
 button('ai-explain').onclick = () => { void explainChanges('staged', 'Staged changes explained'); };
 get<HTMLFormElement>('key-form').onsubmit = event => { event.preventDefault(); void saveKey(); };
 button('run-button').onclick = () => { if (repo) dialog('run-dialog').showModal(); };
