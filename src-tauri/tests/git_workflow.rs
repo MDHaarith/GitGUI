@@ -9,6 +9,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    sync::{Arc, Mutex},
 };
 use tempfile::TempDir;
 
@@ -408,9 +409,23 @@ fn local_remote_publish_fetch_ff_pull_and_divergence_preserve_history() {
     );
     let (mut backend_a, info_a) = a.open();
     let remote_id = info_a.remotes[0].id.clone();
+    let messages = Arc::new(Mutex::new(Vec::new()));
+    let received = messages.clone();
     let info_a = backend_a
-        .push(info_a.id, Some(remote_id), &info_a.token)
+        .push(
+            info_a.id,
+            Some(remote_id),
+            &info_a.token,
+            Some(Arc::new(move |message| {
+                received.lock().unwrap().push(message)
+            })),
+        )
         .unwrap();
+    assert!(messages
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|line: &String| line.contains("objects")));
     assert!(info_a.upstream.is_some());
     let clone = a.temp.path().join("clone");
     cmd(
@@ -430,29 +445,37 @@ fn local_remote_publish_fetch_ff_pull_and_divergence_preserve_history() {
     cmd(&a.root, &["config", "remote.origin.mirror", "true"]);
     a.commit("upstream", "remote change", "upstream");
     let info_a = backend_a.status(info_a.id).unwrap();
-    backend_a.push(info_a.id, None, &info_a.token).unwrap();
+    backend_a
+        .push(info_a.id, None, &info_a.token, None)
+        .unwrap();
     assert!(cmd(
         &remote,
         &["for-each-ref", "--format=%(refname)", "refs/heads/private"]
     )
     .is_empty());
-    let fetched = backend_b.fetch(info_b.id, &info_b.remotes[0].id).unwrap();
+    let fetched = backend_b
+        .fetch(info_b.id, &info_b.remotes[0].id, None)
+        .unwrap();
     assert_eq!(fetched.head, info_b.head);
     assert!(fetched.behind > 0);
-    let pulled = backend_b.pull(info_b.id, &fetched.token).unwrap();
+    let pulled = backend_b.pull(info_b.id, &fetched.token, None).unwrap();
     assert_ne!(pulled.head, info_b.head);
     fs::write(clone.join("local"), b"local").unwrap();
     cmd(&clone, &["add", "local"]);
     cmd(&clone, &["commit", "-m", "local"]);
     a.commit("divergent", "remote", "remote divergent");
     let info_a = backend_a.status(info_a.id).unwrap();
-    backend_a.push(info_a.id, None, &info_a.token).unwrap();
+    backend_a
+        .push(info_a.id, None, &info_a.token, None)
+        .unwrap();
     let info_b = backend_b.status(info_b.id).unwrap();
     let head = info_b.head.clone();
-    assert!(backend_b.pull(info_b.id, &info_b.token).is_err());
+    assert!(backend_b.pull(info_b.id, &info_b.token, None).is_err());
     assert_eq!(backend_b.status(info_b.id).unwrap().head, head);
     let info_b = backend_b.status(info_b.id).unwrap();
-    assert!(backend_b.push(info_b.id, None, &info_b.token).is_err());
+    assert!(backend_b
+        .push(info_b.id, None, &info_b.token, None)
+        .is_err());
     assert_eq!(backend_b.status(info_b.id).unwrap().head, head);
 }
 

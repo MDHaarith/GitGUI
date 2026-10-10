@@ -1,7 +1,7 @@
 pub mod git;
-use git::{Backend, CommitDetails, GraphPage, Preview, RepoInfo};
+use git::{Backend, CommitDetails, GraphPage, Preview, Progress, RepoInfo};
 use std::sync::{Arc, Mutex};
-use tauri::State;
+use tauri::{ipc::Channel, State};
 
 #[derive(Default)]
 pub struct AppState(Arc<Mutex<Backend>>);
@@ -152,26 +152,47 @@ async fn switch_branch(
 async fn fetch_remote(
     repo_id: u64,
     remote_id: String,
+    on_progress: Channel<String>,
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
-    task(state, true, move |b| b.fetch(repo_id, &remote_id)).await
+    let progress: Progress = Arc::new(move |message| {
+        let _ = on_progress.send(message);
+    });
+    task(state, true, move |b| {
+        b.fetch(repo_id, &remote_id, Some(progress))
+    })
+    .await
 }
 #[tauri::command]
 async fn pull_remote(
     repo_id: u64,
     token: String,
+    on_progress: Channel<String>,
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
-    task(state, true, move |b| b.pull(repo_id, &token)).await
+    let progress: Progress = Arc::new(move |message| {
+        let _ = on_progress.send(message);
+    });
+    task(state, true, move |b| {
+        b.pull(repo_id, &token, Some(progress))
+    })
+    .await
 }
 #[tauri::command]
 async fn push_remote(
     repo_id: u64,
     remote_id: Option<String>,
     token: String,
+    on_progress: Channel<String>,
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
-    task(state, true, move |b| b.push(repo_id, remote_id, &token)).await
+    let progress: Progress = Arc::new(move |message| {
+        let _ = on_progress.send(message);
+    });
+    task(state, true, move |b| {
+        b.push(repo_id, remote_id, &token, Some(progress))
+    })
+    .await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -44,10 +44,28 @@ automation environment, so the packaged workflow check launches `AppRun` from
 the mounted AppImage directly. Graph, staging, commits, failed-hook recovery,
 branch actions, publishing, and fetch all passed.
 
-The app remembers the last selected repository and keeps commit drafts locally.
+The app remembers the last selected repository, offers the eight most recently
+opened repositories, and keeps commit drafts locally for each repository.
 Git remains responsible for credential helpers, SSH agents, hooks, and signing.
 Missing identity/authentication/signing setup produces Git's error message and
 keeps the draft. Only open repositories whose local configuration you trust.
+
+Search loaded commit subjects, authors, and hashes with **Ctrl+F**. Enter moves
+to the next match; Shift+Enter moves back. Search preserves the full graph and
+marks matches. Load more history or choose a branch scope to search older commits.
+
+Named branch tips start separate colored graph paths, including a branch that is
+only ahead of another branch. Local and remote labels at the same commit share
+a path; tags do not create additional lanes. Lines always follow actual parents.
+
+Open Details to review commits alongside the graph. The pane follows commit
+selection and can be resized horizontally. Diffs show old/new line numbers;
+**Alt+Up/Down** moves between changed files. Working diffs reload on refresh,
+including when the app regains focus, and clear when the selected change is gone.
+
+Fetch, pull, and push display elapsed time and Git's live progress when available.
+Messages are bounded and credential-redacted. Disabled action buttons explain
+their requirements in tooltips and accessibility descriptions.
 
 ## Develop and build
 

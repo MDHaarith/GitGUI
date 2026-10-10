@@ -52,6 +52,11 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .scopebar { grid-row: 2; display: flex; align-items: center; gap: 8px; padding: 0 24px; background: var(--canvas); font-size: 12px; min-width: 0; }
 .scopebar select { height: 36px; padding: 0 12px; max-width: 220px; }
 .scopebar button { font-size: 13px; }
+#recent-repos { width: 180px; max-width: 20%; height: 40px; font-size: 12px; }
+.history-search { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.history-search input { width: 180px; min-width: 90px; height: 36px; }
+.history-search button { height: 36px; padding: 0 8px; }
+#search-count { max-width: 115px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .spacer { flex: 1; }
 .chip[aria-pressed="true"] { background: var(--surface-3); border-color: var(--edge-strong); }
 #changes-count { display: inline-flex; justify-content: center; align-items: center; margin-left: 4px; min-width: 20px; height: 20px; border-radius: 4px; background: var(--surface-3); font: 11px Geist, system-ui, sans-serif; color: var(--ink-muted); }
@@ -60,6 +65,11 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .workspace { grid-row: 4; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 0 16px 16px; position: relative; }
 .workspace.repository-open { grid-template-columns: 224px minmax(0, 1fr); }
 .repository-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
+.history-review { display: flex; flex: 1; gap: 16px; min-height: 0; min-width: 0; }
+.details-panel { width: 42%; min-width: 280px; max-width: 65%; flex-shrink: 0; padding: 16px; border: 1px solid var(--edge); border-radius: 12px; overflow: auto; resize: horizontal; background: var(--surface-1); }
+.details-panel .detail-controls { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.details-panel #detail-parent { grid-column: 2 / -1; }
+.details-panel .detail-controls select { width: 100%; }
 .branch-sidebar { min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr); background: var(--surface-1); border: 1px solid var(--edge); border-radius: 12px; overflow: hidden; }
 .branch-sidebar .panelbar { padding-inline: 12px; }
 .branch-sidebar .panelbar button { padding-inline: 8px; font-size: 12px; }
@@ -83,12 +93,15 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .history-table tr:hover { background: var(--surface-2); }
 .history-table tr.selected { background: var(--surface-3); box-shadow: inset 2px 0 var(--ink-muted); }
 .history-table tr.selected .subject { color: var(--ink); }
+.history-table tr.search-match .subject { color: var(--accent-hover); }
+.history-table tr.search-match.selected .subject { color: var(--ink); }
 .history-table td.description { padding: 0 12px 0 16px; }
 .commit-content { display: flex; align-items: center; height: 28px; min-width: 0; }
 .subject { min-width: 0; flex: 1; height: 28px; border: 0; color: var(--ink-muted); font-size: 13px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; padding: 0; border-radius: 0; }
 .subject:hover:not(:disabled) { background: transparent; }
 .ref { font: 11px 'Geist Mono', ui-monospace, monospace; height: 18px; padding: 0 5px; border: 1px solid currentColor; border-radius: 4px; margin-right: 6px; white-space: nowrap; flex-shrink: 0; max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
-.ref.remote, .ref.tag { color: var(--ink-muted) !important; border-color: var(--edge-strong); }
+.ref.remote { border-style: dashed; }
+.ref.tag { color: var(--ink-muted) !important; border-color: var(--edge-strong); }
 .author-cell, .date-cell { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 12px !important; }
 .sha-cell { color: var(--muted); font: 12px 'Geist Mono', ui-monospace, monospace; padding-right: 16px !important; white-space: nowrap; }
 .graph-scene { position: relative; width: 100%; min-width: calc(var(--graph-width) + 650px); }
@@ -109,14 +122,16 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .footer { grid-row: 5; min-width: 0; display: flex; align-items: center; gap: 16px; padding: 0 24px; color: var(--muted); background: var(--canvas); border-top: 1px solid var(--edge); font-size: 12px; white-space: nowrap; }
 .footer #status { overflow: hidden; text-overflow: ellipsis; }
 .footer #branch-status { color: var(--ink-muted); }
-.changes { height: 340px; min-height: 200px; max-height: 70%; flex-shrink: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr); border: 1px solid var(--edge); border-top-color: var(--edge-tertiary); border-radius: 12px; background: var(--surface-1); resize: vertical; overflow: auto; }
+#operation-feedback { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
+#operation-progress { width: 64px; height: 5px; accent-color: var(--accent); }
+.changes { height: clamp(160px, 40dvh, 340px); min-height: 160px; max-height: 70%; flex-shrink: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr); border: 1px solid var(--edge); border-top-color: var(--edge-tertiary); border-radius: 12px; background: var(--surface-1); resize: vertical; overflow: auto; }
 .panelbar { display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--edge); }
 .panelbar h2 { margin: 0; font-size: 14px; font-weight: 500; letter-spacing: -.2px; white-space: nowrap; }
 .panelbar .muted { font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .changes-body { display: grid; grid-template-columns: 240px minmax(0, 1fr) 300px; min-height: 0; }
 .file-list { min-width: 0; overflow: auto; border-right: 1px solid var(--edge); padding: 8px; }
 .file-group-title { display: flex; align-items: center; justify-content: space-between; gap: 4px; color: var(--muted); padding: 2px 4px; font-size: 12px; margin-top: 6px; }
-.file-group-title button { height: 28px; font-size: 11px; padding: 0 4px; flex-shrink: 0; }
+.file-group-title button { height: 28px; font-size: 11px; padding: 0 4px; white-space: nowrap; flex-shrink: 0; }
 .file-row { display: flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 2px; }
 .file-row.selected { background: var(--surface-3); border-radius: 6px; }
 .file-row input { accent-color: var(--accent); }
@@ -132,7 +147,9 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .composer #staged-count { color: var(--muted); font-size: 11px; }
 .composer .primary { font-size: 12px; padding-inline: 12px; flex-shrink: 0; }
 .diff { margin: 0; font: 12px/1.6 'Geist Mono', ui-monospace, monospace; tab-size: 4; }
-.diff-line { display: block; white-space: pre; }
+.diff-line { display: grid; grid-template-columns: 4ch 4ch minmax(max-content, 1fr); gap: 8px; white-space: pre; }
+.line-number { color: var(--muted); text-align: right; user-select: none; }
+.diff-line.note { display: block; }
 .diff-line.added { color: #a2d39f; }
 .diff-line.removed { color: #eba3ae; }
 .diff-line.hunk { color: var(--ink-muted); }
@@ -150,7 +167,7 @@ dialog::backdrop { background: rgb(0 0 0 / .75); }
 .detail-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-block: 1px solid var(--edge); padding: 12px 0; margin: 16px 0; }
 .detail-controls label { font-size: 12px; color: var(--muted); }
 .detail-controls select { max-width: min(380px, 100%); height: 36px; }
-#detail-diff { max-height: 350px; overflow: auto; min-height: 40px; }
+#detail-diff { overflow: auto; min-height: 40px; }
 .branch-dialog { max-width: 540px; }
 .form-grid { display: grid; gap: 12px; }
 .form-grid input, .form-grid select { width: 100%; }
@@ -158,6 +175,8 @@ dialog::backdrop { background: rgb(0 0 0 / .75); }
 .form-grid p { color: var(--muted); font-size: 12px; margin: 0; overflow-wrap: anywhere; }
 .dialog-error { color: var(--ink); white-space: pre-wrap; }
 @media (max-width: 1024px) {
+  .history-search input { width: 130px; }
+  #search-count { max-width: 60px; }
   .workspace.repository-open { grid-template-columns: 200px minmax(0, 1fr); }
   .changes-body { grid-template-columns: 190px minmax(0, 1fr) 260px; }
   .toolbar, .scopebar, .footer { padding-inline: 16px; }

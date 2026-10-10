@@ -1,4 +1,4 @@
-import type { Commit } from './git.ts';
+import type { Commit, RefInfo } from './git.ts';
 
 export const laneColors = ['#7aa2f7', '#8bc58a', '#5ec4c0', '#d98fb0', '#a98be0', '#d6b57d'];
 export interface Rail { lane: number; color: string; parent: string }
@@ -8,14 +8,24 @@ export interface LayoutRow {
 }
 export interface Layout { rows: LayoutRow[]; lanes: number; pending: Rail[] }
 
-export function layoutHistory(commits: Commit[]): Layout {
+export function findCommits(commits: Commit[], query: string): string[] {
+  const needle = query.trim().toLowerCase();
+  return needle ? commits.filter(commit => [commit.subject, commit.author, commit.oid].some(value => value.toLowerCase().includes(needle))).map(commit => commit.oid) : [];
+}
+
+export function layoutHistory(commits: Commit[], refs: RefInfo[] = []): Layout {
+  const tips = new Map<string, string>();
+  for (const ref of refs.filter(ref => ref.kind !== 'tag').sort((a, b) => a.fullName.localeCompare(b.fullName))) {
+    if (!tips.has(ref.target)) tips.set(ref.target, laneColors[tips.size % laneColors.length]);
+  }
   const active: (string | null)[] = [];
   const colors: string[] = [];
   const rows: LayoutRow[] = [];
   let lanes = 0;
   const seen = new Set<string>();
-  const available = () => { const vacancy = active.indexOf(null); return vacancy < 0 ? active.length : vacancy; };
-  let nextColor = 0;
+  const reserved = new Set<number>();
+  const available = (exclude = -1) => { const vacancy = active.findIndex((parent, index) => parent === null && index !== exclude && !reserved.has(index)); return vacancy < 0 ? active.length : vacancy; };
+  let nextColor = tips.size;
   const newColor = () => laneColors[nextColor++ % laneColors.length];
   const color = (lane: number) => colors[lane];
   for (const commit of commits) {
@@ -24,7 +34,8 @@ export function layoutHistory(commits: Commit[]): Layout {
     seen.add(commit.oid);
     const expected = active.indexOf(commit.oid);
     const lane = expected < 0 ? available() : expected;
-    if (expected < 0) colors[lane] = newColor();
+    if (expected < 0) colors[lane] = tips.get(commit.oid) ?? newColor();
+    if (tips.has(commit.oid)) reserved.add(lane);
     const nodeColor = color(lane);
     const through = active.flatMap((parent, index) => parent && index !== lane ? [{ lane: index, color: color(index), parent }] : []);
     active[lane] = null;
@@ -32,9 +43,12 @@ export function layoutHistory(commits: Commit[]): Layout {
     for (const [index, parent] of [...new Set(commit.parents)].entries()) {
       let destination = active.indexOf(parent);
       if (destination < 0) {
-        destination = index === 0 && active[lane] === null ? lane : available();
+        // A named parent starts its own path even when the newer branch is only ahead.
+        const branchTip = tips.has(parent);
+        destination = index === 0 && !branchTip && active[lane] === null ? lane : available(branchTip ? lane : -1);
         active[destination] = parent;
-        colors[destination] = index === 0 ? nodeColor : newColor();
+        colors[destination] = tips.get(parent) ?? (index === 0 ? nodeColor : newColor());
+        if (branchTip) reserved.add(destination);
       }
       outgoing.push({ lane: destination, color: index === 0 ? nodeColor : color(destination), parent });
     }
@@ -58,7 +72,7 @@ export function paintGraph(svg: SVGSVGElement, layout: Layout, height: number, r
   svg.setAttribute('width', String(width)); svg.setAttribute('height', String(height));
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   const description = element('desc', {});
-  description.textContent = 'Each dot is a commit. Lines connect commits to their parents. Rings show merges; dashed nodes indicate shallow boundaries.';
+  description.textContent = 'Each dot is a commit. Named branch tips start separate colored paths. Lines connect commits to their parents. Rings show merges; dashed nodes indicate shallow boundaries.';
   svg.append(description);
   const x = (lane: number) => 26 + lane * 18;
   for (const [index, row] of layout.rows.entries()) {

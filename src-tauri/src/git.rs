@@ -12,11 +12,13 @@ use std::{
     io::{Read, Write},
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
+    sync::Arc,
     thread,
     time::{Duration, Instant},
 };
 
 pub type Result<T> = std::result::Result<T, String>;
+pub type Progress = Arc<dyn Fn(String) + Send + Sync>;
 const DATA_LIMIT: usize = 16 * 1024 * 1024;
 const PREVIEW_LIMIT: usize = 2 * 1024 * 1024;
 
@@ -200,10 +202,26 @@ pub fn redact(message: &str) -> String {
     }
     out
 }
-fn drain(mut reader: impl Read, limit: usize) -> std::io::Result<(Vec<u8>, bool)> {
+fn report_progress(progress: &Option<Progress>, line: &[u8], sent: &mut usize) {
+    if let Some(progress) = progress {
+        let message = display(redact(&text(line)).as_bytes());
+        if !message.trim().is_empty() && *sent + message.len() <= 64 * 1024 {
+            *sent += message.len();
+            progress(message);
+        }
+    }
+}
+fn drain(
+    mut reader: impl Read,
+    limit: usize,
+    progress: Option<Progress>,
+) -> std::io::Result<(Vec<u8>, bool)> {
     let mut saved = Vec::new();
     let mut buffer = [0u8; 8192];
     let mut truncated = false;
+    let mut pending = Vec::new();
+    let mut oversized = false;
+    let mut sent = 0;
     loop {
         match reader.read(&mut buffer)? {
             0 => break,
@@ -211,8 +229,27 @@ fn drain(mut reader: impl Read, limit: usize) -> std::io::Result<(Vec<u8>, bool)
                 let keep = n.min(limit.saturating_sub(saved.len()));
                 saved.extend_from_slice(&buffer[..keep]);
                 truncated |= keep < n;
+                if progress.is_some() && sent < 64 * 1024 {
+                    for &byte in &buffer[..n] {
+                        if matches!(byte, b'\r' | b'\n') {
+                            if !oversized {
+                                report_progress(&progress, &pending, &mut sent);
+                            }
+                            pending.clear();
+                            oversized = false;
+                        } else if pending.len() < 4096 {
+                            pending.push(byte);
+                        } else {
+                            // Drop oversized lines entirely so truncated credentials cannot be exposed.
+                            oversized = true;
+                        }
+                    }
+                }
             }
         }
+    }
+    if !oversized {
+        report_progress(&progress, &pending, &mut sent);
     }
     Ok((saved, truncated))
 }
@@ -222,6 +259,7 @@ fn execute(
     input: Option<&[u8]>,
     limit: usize,
     timeout: Option<Duration>,
+    progress: Option<Progress>,
 ) -> Result<Output> {
     let mut command = Command::new(if cfg!(target_os = "linux") {
         "/usr/bin/git"
@@ -276,8 +314,8 @@ fn execute(
         .map_err(|e| format!("Could not start Git: {e}. Install Git and ensure it is on PATH."))?;
     let stdout = child.stdout.take().ok_or("Git stdout unavailable")?;
     let stderr = child.stderr.take().ok_or("Git stderr unavailable")?;
-    let out_reader = thread::spawn(move || drain(stdout, limit));
-    let err_reader = thread::spawn(move || drain(stderr, 64 * 1024));
+    let out_reader = thread::spawn(move || drain(stdout, limit, None));
+    let err_reader = thread::spawn(move || drain(stderr, 64 * 1024, progress));
     if let Some(data) = input {
         if let Some(mut stdin) = child.stdin.take() {
             let _ = stdin.write_all(data);
@@ -328,7 +366,14 @@ fn execute(
     })
 }
 fn read(root: &Path, args: &[OsString]) -> Result<Vec<u8>> {
-    let output = execute(root, args, None, DATA_LIMIT, Some(Duration::from_secs(30)))?;
+    let output = execute(
+        root,
+        args,
+        None,
+        DATA_LIMIT,
+        Some(Duration::from_secs(30)),
+        None,
+    )?;
     if !output.ok {
         return Err(if output.stderr.trim().is_empty() {
             "Git command failed".into()
@@ -348,6 +393,7 @@ fn optional(root: &Path, args: &[&str]) -> Result<Option<Vec<u8>>> {
         None,
         DATA_LIMIT,
         Some(Duration::from_secs(30)),
+        None,
     )?;
     if output.truncated {
         return Err("Git output exceeds the supported limit".into());
@@ -651,7 +697,7 @@ impl Backend {
                 );
             }
         }
-        repo.write(&args, None, None)?;
+        repo.write(&args, None, None, None)?;
         repo.info()
     }
     pub fn commit(
@@ -677,6 +723,7 @@ impl Backend {
             &argv(&["commit", "-F", "-"]),
             Some(message.as_bytes()),
             None,
+            None,
         )?;
         repo.info()
     }
@@ -701,7 +748,7 @@ impl Backend {
             .or(info.head)
             .ok_or("Create the first commit before creating another branch")?;
         valid_oid(&start)?;
-        repo.write(&argv(&["branch", name, &start]), None, None)?;
+        repo.write(&argv(&["branch", name, &start]), None, None, None)?;
         repo.info()
     }
     pub fn switch_branch(&mut self, id: u64, reference_id: &str, token: &str) -> Result<RepoInfo> {
@@ -718,10 +765,15 @@ impl Backend {
             .strip_prefix(b"refs/heads/")
             .ok_or("Invalid branch")?;
         let args = vec![os("switch"), os("--no-guess"), os("--"), from_bytes(name)];
-        repo.write(&args, None, None)?;
+        repo.write(&args, None, None, None)?;
         repo.info()
     }
-    pub fn fetch(&mut self, id: u64, remote_id: &str) -> Result<RepoInfo> {
+    pub fn fetch(
+        &mut self,
+        id: u64,
+        remote_id: &str,
+        progress: Option<Progress>,
+    ) -> Result<RepoInfo> {
         let repo = self.repo(id)?;
         let info = repo.info()?;
         repo.require_normal(&info)?;
@@ -732,14 +784,15 @@ impl Backend {
             .ok_or("Choose a configured remote")?;
         let args = vec![
             os("fetch"),
+            os("--progress"),
             os("--no-prune"),
             os("--"),
             from_bytes(&decode_hex(&remote.id)?),
         ];
-        repo.write(&args, None, Some(Duration::from_secs(120)))?;
+        repo.write(&args, None, Some(Duration::from_secs(120)), progress)?;
         repo.info()
     }
-    pub fn pull(&mut self, id: u64, token: &str) -> Result<RepoInfo> {
+    pub fn pull(&mut self, id: u64, token: &str, progress: Option<Progress>) -> Result<RepoInfo> {
         let repo = self.repo(id)?;
         let info = repo.checked(token)?;
         repo.require_normal(&info)?;
@@ -755,16 +808,23 @@ impl Backend {
             "-c",
             "merge.autoStash=false",
             "pull",
+            "--progress",
             "--ff-only",
             "--no-rebase",
             "--no-autostash",
             "--",
         ]);
         args.extend([remote, merge]);
-        repo.write(&args, None, Some(Duration::from_secs(120)))?;
+        repo.write(&args, None, Some(Duration::from_secs(120)), progress)?;
         repo.info()
     }
-    pub fn push(&mut self, id: u64, remote_id: Option<String>, token: &str) -> Result<RepoInfo> {
+    pub fn push(
+        &mut self,
+        id: u64,
+        remote_id: Option<String>,
+        token: &str,
+        progress: Option<Progress>,
+    ) -> Result<RepoInfo> {
         let repo = self.repo(id)?;
         let info = repo.checked(token)?;
         repo.require_normal(&info)?;
@@ -796,6 +856,7 @@ impl Backend {
         let mut args = vec![os("-c"), from_bytes(&mirror_setting)];
         args.extend(argv(&[
             "push",
+            "--progress",
             "--porcelain",
             "--no-force",
             "--no-mirror",
@@ -806,7 +867,7 @@ impl Backend {
             args.push(os("--set-upstream"));
         }
         args.extend([os("--"), remote, from_bytes(&spec)]);
-        repo.write(&args, None, Some(Duration::from_secs(120)))?;
+        repo.write(&args, None, Some(Duration::from_secs(120)), progress)?;
         repo.info()
     }
 }
@@ -961,7 +1022,7 @@ impl Repository {
         let index = self.metadata("index")?;
         match File::open(index) {
             Ok(file) => {
-                let (bytes, clipped) = drain(file, DATA_LIMIT).map_err(|e| e.to_string())?;
+                let (bytes, clipped) = drain(file, DATA_LIMIT, None).map_err(|e| e.to_string())?;
                 if clipped {
                     return Err("Repository index exceeds the supported 16 MiB limit".into());
                 }
@@ -1005,9 +1066,10 @@ impl Repository {
         args: &[OsString],
         input: Option<&[u8]>,
         timeout: Option<Duration>,
+        progress: Option<Progress>,
     ) -> Result<()> {
         self.graph = None;
-        let output = execute(&self.root, args, input, DATA_LIMIT, timeout)?;
+        let output = execute(&self.root, args, input, DATA_LIMIT, timeout, progress)?;
         if output.ok {
             Ok(())
         } else {
@@ -1172,6 +1234,7 @@ fn preview(root: &Path, args: &[OsString]) -> Result<Preview> {
         None,
         PREVIEW_LIMIT,
         Some(Duration::from_secs(30)),
+        None,
     )?;
     if !output.ok {
         return Err(output.stderr.trim().to_owned());
@@ -1334,7 +1397,8 @@ fn untracked_preview(root: &Path, path: &OsStr) -> Result<Preview> {
                 if !file.metadata().map_err(|e| e.to_string())?.is_file() {
                     return Err("Only regular files and symbolic links can be previewed".into());
                 }
-                let (bytes, truncated) = drain(file, PREVIEW_LIMIT).map_err(|e| e.to_string())?;
+                let (bytes, truncated) =
+                    drain(file, PREVIEW_LIMIT, None).map_err(|e| e.to_string())?;
                 let binary = bytes.contains(&0) || std::str::from_utf8(&bytes).is_err();
                 return Ok(Preview {
                     text: if binary {
@@ -1350,4 +1414,55 @@ fn untracked_preview(root: &Path, path: &OsStr) -> Result<Preview> {
         }
     }
     Err("This platform cannot safely preview this untracked file".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    #[test]
+    fn progress_redacts_complete_lines_across_reads_and_drops_oversized_lines() {
+        let input = format!(
+            "Receiving objects: 50%\r\n{}\nhttps://user:secret@example.invalid/path\n{}\nfinal\x1b",
+            "x".repeat(8140),
+            "https://user:".to_owned() + &"password".repeat(2000) + "@example.invalid"
+        );
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let received = messages.clone();
+        let (saved, truncated) = drain(
+            input.as_bytes(),
+            32,
+            Some(Arc::new(move |line| received.lock().unwrap().push(line))),
+        )
+        .unwrap();
+        assert_eq!(saved, input.as_bytes()[..32]);
+        assert!(truncated);
+        assert_eq!(
+            *messages.lock().unwrap(),
+            vec![
+                "Receiving objects: 50%",
+                "https://[redacted]@example.invalid/path",
+                "final\\u{1b}"
+            ]
+        );
+    }
+
+    #[test]
+    fn progress_is_bounded_while_the_entire_pipe_is_drained() {
+        let input = "Receiving objects: 50%\n".repeat(10_000);
+        let mut reader = std::io::Cursor::new(input.as_bytes());
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let received = messages.clone();
+        drain(
+            &mut reader,
+            0,
+            Some(Arc::new(move |line| received.lock().unwrap().push(line))),
+        )
+        .unwrap();
+        assert_eq!(reader.position(), input.len() as u64);
+        let messages = messages.lock().unwrap();
+        assert!(!messages.is_empty());
+        assert!(messages.iter().map(String::len).sum::<usize>() <= 64 * 1024);
+    }
 }
