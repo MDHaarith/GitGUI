@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 — 2026-10-11
+
+- Error /home/mdhaarith/Documents/Projects/GitGUI/.githooks/pre-commit already exists. Remove it or merge it by hand before enabling versioning.
+
 ## 0.3.0 — 2026-10-11
 
 - Add Init repository and a per-repository version manager: hooks require a version bump and changelog entry for every code commit and tag each new version.

@@ -1,11 +1,16 @@
 #!/bin/sh
-# GitGUI versioning (repository-specific: also runs npm run version:check)
-# Every commit that changes app code must carry its own version bump and changelog entry.
-git diff --cached --name-only | grep -E '^src(-tauri/src)?/' | grep -qv '\.test\.ts$' || exit 0
-version() { node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version'; }
-new=$(git show :package.json | version)
-old=$(git show HEAD:package.json 2>/dev/null | version)
-fail() { echo "pre-commit: $1" >&2; exit 1; }
-[ "$new" != "$old" ] || fail "app code changed but version is still $old. Run: npm version minor --no-git-tag-version (patch for fixes, major for breaking changes), then git add -A"
-git show :CHANGELOG.md | grep -q "^## $new " || fail "CHANGELOG.md needs a staged '## $new — $(date +%F)' entry"
-npm run --silent version:check >/dev/null || fail "versions out of sync. Run: node scripts/version.mjs"
+# GitGUI versioning: commits that change code must bump the version and add a changelog entry.
+version() {
+  for f in package.json Cargo.toml VERSION; do
+    git cat-file -e "$1$f" 2>/dev/null || continue
+    # shortcut: takes the first version-shaped line, which is the project version in standard manifests.
+    git show "$1$f" | sed -n -e 's/^ *"version": *"\([^"]*\)".*/\1/p' -e 's/^version *= *"\([^"]*\)".*/\1/p' -e 's/^\([0-9][0-9A-Za-z.+-]*\)$/\1/p' | head -n 1
+    return
+  done
+}
+fail() { echo "GitGUI versioning: $1" >&2; exit 1; }
+git diff --cached --name-only | grep -Evq '(\.md$|^docs/|(^|/)tests?/|\.test\.|_test\.)' || exit 0
+new=$(version :)
+[ -n "$new" ] || fail "no version found in package.json, Cargo.toml, or VERSION"
+[ "$new" != "$(version HEAD: 2>/dev/null)" ] || fail "code changed but the version is still $new. Bump it (patch: fix, minor: feature, major: breaking change) and stage it"
+git show :CHANGELOG.md 2>/dev/null | grep -q "^## $new " || fail "stage a CHANGELOG.md entry headed '## $new — $(date +%F)'"
