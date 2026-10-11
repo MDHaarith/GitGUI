@@ -235,28 +235,30 @@ function scopeOptions() {
     for (const ref of refs) {
       const scopeOption = option(ref.id, ref.name); scopeOption.dataset.current = String(ref.isHead); group.append(scopeOption);
       const item = document.createElement('button'); item.type = 'button'; item.className = 'ref-item'; item.dataset.repo = ''; item.dataset.scope = ref.id; item.dataset.kind = kind;
-      item.title = ref.fullName; item.setAttribute('aria-label', kind + ' ' + ref.name + (ref.isHead ? ', current branch' : ''));
+      item.setAttribute('aria-label', kind + ' ' + ref.name + (ref.isHead ? ', current branch' : ''));
       item.setAttribute('aria-pressed', String(scope === ref.id));
-      const name = document.createElement('span'); name.className = 'ref-label'; name.textContent = ref.name; item.append(name);
+      const name = document.createElement('span'); name.className = 'ref-label'; name.textContent = ref.name; name.title = ref.fullName; item.append(name);
       if (ref.isHead) { const head = document.createElement('span'); head.className = 'ref-head'; head.textContent = 'HEAD'; item.append(head); }
       item.addEventListener('click', () => { void changeScope(ref.id); });
       const line = document.createElement('div'); line.className = 'ref-row'; line.append(item);
+      const actions = document.createElement('span'); actions.className = 'ref-actions';
       if (kind !== 'tag' && !ref.isHead) {
         const action = document.createElement('button'); action.type = 'button'; action.className = 'ref-action'; action.dataset.repo = '';
         action.textContent = kind === 'remote' ? 'Check out' : 'Switch';
         action.title = kind === 'remote' ? 'Make a local branch that follows this one, and switch to it' : 'Switch to this branch';
         action.setAttribute('aria-label', action.textContent + ' ' + ref.name); action.addEventListener('click', () => { void switchTo(ref); });
-        line.append(action);
-        const merge = document.createElement('button'); merge.type = 'button'; merge.className = 'ref-action'; merge.dataset.repo = ''; merge.textContent = 'Merge'; merge.title = 'Merge this branch into the current branch'; merge.setAttribute('aria-label', 'Merge ' + ref.name); merge.onclick = () => { void mergeRef(ref); }; line.append(merge);
+        actions.append(action);
+        const merge = document.createElement('button'); merge.type = 'button'; merge.className = 'ref-action'; merge.dataset.repo = ''; merge.textContent = 'Merge'; merge.title = 'Merge this branch into the current branch'; merge.setAttribute('aria-label', 'Merge ' + ref.name); merge.onclick = () => { void mergeRef(ref); }; actions.append(merge);
       } else if (kind === 'tag') {
-        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'ref-action'; remove.dataset.repo = ''; remove.textContent = 'Delete'; remove.title = 'Delete this local tag'; remove.setAttribute('aria-label', 'Delete tag ' + ref.name); remove.onclick = () => { void removeTag(ref); }; line.append(remove);
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'ref-action'; remove.dataset.repo = ''; remove.textContent = 'Delete'; remove.title = 'Delete this local tag'; remove.setAttribute('aria-label', 'Delete tag ' + ref.name); remove.onclick = () => { void removeTag(ref); }; actions.append(remove);
       }
       if (kind !== 'tag') {
         const explain = document.createElement('button'); explain.type = 'button'; explain.className = 'ref-action'; explain.dataset.repo = ''; explain.textContent = 'Explain';
-        explain.title = 'Explain this branch with AI'; explain.setAttribute('aria-label', 'Explain branch ' + ref.name);
+        explain.dataset.tip = 'Explain this branch with AI'; explain.setAttribute('aria-label', 'Explain branch ' + ref.name);
         explain.onclick = () => { void explainChanges('branch:' + ref.id, 'Branch ' + ref.name + ' explained'); };
-        line.append(explain);
+        actions.append(explain);
       }
+      if (actions.childElementCount) line.append(actions);
       section.append(line);
     }
     control.append(group); list.append(section);

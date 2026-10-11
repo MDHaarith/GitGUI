@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.15.2 — 2026-10-11
+- Keep branch names readable in narrow sidebars and contain the Explain tooltip.
+
 ## 0.15.1 — 2026-10-11
 - Silence compiler warning noise from the bundled glib library
 

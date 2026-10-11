@@ -362,10 +362,15 @@ dialog::backdrop { background: rgb(0 0 0 / .8); backdrop-filter: blur(6px); }
 .hunk-action { height: 22px; margin-left: 12px; padding: 0 8px; font: 500 11px Geist, system-ui, sans-serif; border: 1px solid var(--edge-strong); border-radius: 6px; color: var(--ink-muted); }
 .amend-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .amend-row .muted { font-size: 11px; }
-.ref-row { display: flex; align-items: center; gap: 2px; }
+.ref-row { position: relative; display: flex; align-items: center; gap: 2px; }
 .ref-row .ref-item { flex: 1; min-width: 0; }
-.ref-action { flex: none; height: 26px; padding: 0 6px; font-size: 11px; color: var(--muted); opacity: 0; }
-.ref-row:hover .ref-action, .ref-row:focus-within .ref-action { opacity: 1; }
+.ref-actions { position: absolute; z-index: 1; top: 50%; right: 0; display: flex; gap: 2px; padding: 0 2px; border-radius: 6px; background: var(--surface-1); opacity: 0; pointer-events: none; transform: translateY(-50%); }
+.ref-row:hover .ref-actions, .ref-row:focus-within .ref-actions { background: var(--surface-3); opacity: 1; pointer-events: auto; }
+.ref-item[aria-pressed="true"] ~ .ref-actions { background: var(--surface-3); }
+.ref-action { flex: none; height: 26px; padding: 0 6px; font-size: 11px; color: var(--muted); }
+.ref-action[data-tip] { position: relative; }
+.ref-action[data-tip]::after { content: attr(data-tip); position: absolute; z-index: 2; right: 0; bottom: calc(100% + 4px); width: max-content; max-width: calc(100vw - 16px); padding: 5px 8px; border: 1px solid var(--edge-strong); border-radius: 6px; background: var(--surface-3); box-shadow: 0 4px 12px rgb(0 0 0 / .35); color: var(--ink); font: 12px Geist, system-ui, sans-serif; line-height: 1.4; text-align: left; white-space: normal; overflow-wrap: anywhere; opacity: 0; pointer-events: none; }
+.ref-action[data-tip]:hover::after, .ref-action[data-tip]:focus-visible::after { opacity: 1; }
 .ref-note { margin: 16px 8px 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .hint .hint-action { height: 28px; padding: 0 10px; font-size: 12px; }
 .conflict-blocks { display: grid; gap: 12px; }
@@ -376,6 +381,6 @@ dialog::backdrop { background: rgb(0 0 0 / .8); backdrop-filter: blur(6px); }
 .conflict-sides figcaption { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
 .conflict-sides pre { max-height: 200px; overflow: auto; padding: 8px; border-radius: 6px; background: var(--surface-1); white-space: pre-wrap; overflow-wrap: anywhere; }
 #search-all { height: 28px; padding: 0 10px; font-size: 12px; }
-@media (pointer: coarse) { .ref-action { opacity: 1; } }
+@media (pointer: coarse) { .ref-actions { background: var(--surface-1); opacity: 1; pointer-events: auto; } }
 /* Narrow windows: sync buttons show icons only so the window controls always fit. */
 @media (max-width: 1500px) { .toolbar-actions .label { display: none; } }
