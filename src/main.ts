@@ -72,7 +72,8 @@ async function openSaved(path: string) {
   }
 }
 function renderRepoTabs() {
-  const tabs = get('repo-tabs'); tabs.replaceChildren();
+  // One open repository is already shown in the toolbar picker.
+  const tabs = get('repo-tabs'); tabs.replaceChildren(); tabs.hidden = openRepos.length < 2;
   for (const item of openRepos) {
     const tab = document.createElement('span'); tab.className = 'repo-tab';
     const activate = document.createElement('button'); activate.type = 'button'; activate.className = 'repo-tab-name'; activate.textContent = item.root.split('/').filter(Boolean).pop() || item.root; activate.title = item.root; activate.setAttribute('aria-pressed', String(item.id === repo?.id)); activate.disabled = busy;

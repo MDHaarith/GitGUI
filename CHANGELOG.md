@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.15.7 — 2026-10-11
+- Repository tabs get their own line (shown with two or more open) and wrap instead of scrolling
+
 ## 0.15.6 — 2026-10-11
 - Repository tabs now use the remaining toolbar space and scroll, so the Changes button never wraps however many tabs are open
 
