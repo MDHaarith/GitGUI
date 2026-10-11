@@ -63,7 +63,7 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .scopebar select { height: 36px; padding: 0 12px; max-width: 220px; }
 #recent-repos { width: 180px; max-width: 20%; height: 40px; font-size: 12px; }
 .select-control { min-width: 0; flex-shrink: 0; }
-.toolbar .select-control { width: 300px; flex-shrink: 1; min-width: 160px; }
+.toolbar .select-control { width: 300px; flex-shrink: 1; min-width: 120px; }
 .scopebar .select-control { width: 200px; }
 .toolbar .select-trigger, .scopebar .select-trigger { display: flex; width: 100%; gap: 10px; padding: 0 10px 0 12px; text-align: left; color: var(--ink); background: var(--surface-1); border: 1px solid var(--edge); }
 .select-trigger:hover:not(:disabled) { background: var(--surface-2); border-color: var(--edge-strong); }
@@ -368,3 +368,5 @@ dialog::backdrop { background: rgb(0 0 0 / .8); backdrop-filter: blur(6px); }
 .conflict-sides pre { max-height: 200px; overflow: auto; padding: 8px; border-radius: 6px; background: var(--surface-1); white-space: pre-wrap; overflow-wrap: anywhere; }
 #search-all { height: 28px; padding: 0 10px; font-size: 12px; }
 @media (pointer: coarse) { .ref-action { opacity: 1; } }
+/* Narrow windows: sync buttons show icons only so the window controls always fit. */
+@media (max-width: 1500px) { .toolbar-actions .label { display: none; } }

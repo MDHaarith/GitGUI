@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.12.1 — 2026-10-11
+- Keep the window controls visible: sync buttons show icons only in windows narrower than 1500px.
+
 ## 0.12.0 — 2026-10-11
 - Add stashes: put changes aside from Changes or Tools › Stashes and bring them back later.
 - Add "Amend last commit" to the commit form; pushed commits are refused and version tags move to the new commit.

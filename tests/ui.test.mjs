@@ -109,3 +109,10 @@ test('every dialog fits the window without sideways scrolling', async () => {
   }
   await tab.screenshot({ path: 'test-results/ui-help.png' });
 });
+
+test('window controls stay inside a 1366px window', async () => {
+  await tab.setViewportSize({ width: 1366, height: 768 });
+  await tab.evaluate(() => { document.getElementById('publish').hidden = false; document.getElementById('window-controls').hidden = false; });
+  const box = await tab.locator('#window-close').boundingBox();
+  assert.ok(box && box.x + box.width <= 1366, JSON.stringify(box));
+});
