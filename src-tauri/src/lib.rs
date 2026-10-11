@@ -50,6 +50,14 @@ async fn open_repository(path: String, state: State<'_, AppState>) -> git::Resul
     task(state, true, move |b| b.open(&path)).await
 }
 #[tauri::command]
+async fn close_repository(repo_id: u64, state: State<'_, AppState>) -> git::Result<()> {
+    task(state, true, move |b| {
+        b.close_repository(repo_id);
+        Ok(())
+    })
+    .await
+}
+#[tauri::command]
 async fn init_repository(path: String, state: State<'_, AppState>) -> git::Result<RepoInfo> {
     task(state, true, move |b| b.init(&path)).await
 }
@@ -753,6 +761,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             startup_path,
             open_repository,
+            close_repository,
             init_repository,
             enable_versioning,
             list_checkpoints,

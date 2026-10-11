@@ -1322,3 +1322,36 @@ fn branch_change_text_resolves_ref_id_and_includes_log_and_diff() {
     assert!(text.contains("+topic"));
     assert!(backend.change_text(info.id, "branch:untrusted").is_err());
 }
+
+#[test]
+fn repositories_remain_available_until_closed() {
+    let first = Fixture::new();
+    first.commit("one", "first\n", "first");
+    let second = Fixture::new();
+    second.commit("two", "second\n", "second");
+    let mut backend = Backend::default();
+    let first_info = backend.open(first.root.to_str().unwrap()).unwrap();
+    let second_info = backend.open(second.root.to_str().unwrap()).unwrap();
+    assert_ne!(first_info.id, second_info.id);
+    assert_eq!(
+        backend.open(first.root.to_str().unwrap()).unwrap().id,
+        first_info.id
+    );
+    for info in [&first_info, &second_info] {
+        assert_eq!(backend.status(info.id).unwrap().id, info.id);
+        assert_eq!(
+            backend
+                .graph(info.id, None, 10, None)
+                .unwrap()
+                .commits
+                .len(),
+            1
+        );
+    }
+    backend.close_repository(first_info.id);
+    assert!(backend
+        .status(first_info.id)
+        .unwrap_err()
+        .contains("Repository selection changed"));
+    assert_eq!(backend.status(second_info.id).unwrap().id, second_info.id);
+}

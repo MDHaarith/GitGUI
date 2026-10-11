@@ -28,6 +28,7 @@ const scopeDropdown = wireDropdown(select('scope'));
 const repoDropdown = wireDropdown(select('recent-repos'), () => button('open-repo').click());
 
 let repo: RepoInfo | null = null;
+let openRepos: RepoInfo[] = [];
 let page: GraphPage | null = null;
 let layout: Layout = layoutHistory([]);
 let selected: string | null = null;
@@ -64,9 +65,23 @@ async function openSaved(path: string) {
   catch (error) {
     if (!isUnavailable(error)) throw error;
     forgetRepository(path); renderRecentRepositories();
+    let paths: unknown;
+    try { paths = JSON.parse(stored('openRepositories') ?? '[]'); } catch { paths = []; }
+    if (Array.isArray(paths)) save('openRepositories', JSON.stringify(paths.filter(item => item !== path)));
     throw new Error(path + ' is no longer available and was removed from recent repositories.');
   }
 }
+function renderRepoTabs() {
+  const tabs = get('repo-tabs'); tabs.replaceChildren();
+  for (const item of openRepos) {
+    const tab = document.createElement('span'); tab.className = 'repo-tab';
+    const activate = document.createElement('button'); activate.type = 'button'; activate.className = 'repo-tab-name'; activate.textContent = item.root.split('/').filter(Boolean).pop() || item.root; activate.title = item.root; activate.setAttribute('aria-pressed', String(item.id === repo?.id)); activate.disabled = busy;
+    activate.onclick = () => { if (!busy && item.id !== repo?.id) void run('Opening repository…', () => activateRepository(item)); };
+    const close = document.createElement('button'); close.type = 'button'; close.className = 'repo-tab-close'; close.textContent = '×'; close.title = 'Close ' + item.root; close.setAttribute('aria-label', 'Close repository ' + item.root); close.disabled = busy; close.onclick = () => { if (!busy) void closeRepository(item); };
+    tab.append(activate, close); tabs.append(tab);
+  }
+}
+function rememberOpenRepos() { save('openRepositories', JSON.stringify(openRepos.map(item => item.root))); renderRepoTabs(); }
 function renderRecentRepositories() {
   const control = select('recent-repos'); control.replaceChildren(option('', 'Recent repositories'));
   for (const path of recentRepositories()) control.append(option(path, path.split('/').filter(Boolean).pop() + ' · ' + path));
@@ -132,6 +147,7 @@ function updateControls() {
   button('details-button').setAttribute('aria-expanded', String(!get('details').hidden));
   updateDetailControls();
   renderRecentRepositories();
+  renderRepoTabs();
   scopeDropdown.sync(); repoDropdown.sync();
   get('app').setAttribute('aria-busy', String(busy));
 }
@@ -458,19 +474,35 @@ async function applyRebase() {
   const plan = rebasePlan; dialog('rebase-dialog').close();
   await mutate('Cleaning up commits…', () => api.cleanCommits(repo!.id, plan.base, plan.commits, repo!.token));
 }
-async function openPath(path: string, load = api.open) {
-  const next = await load(path); saveDraft();
+async function activateRepository(next: RepoInfo, refresh = false) {
+  saveDraft();
+  if (refresh) next = await api.status(next.id);
   for (const id of ['branches', 'remote-dialog', 'rebase-dialog']) if (dialog(id).open) dialog(id).close();
   get('details').hidden = true;
   details = null; detailRequest++; workingRequest++;
   repo = next; epoch++; scope = null; limit = 200; page = null; selected = null; workingFile = null;
   checked.staged.clear(); checked.unstaged.clear(); input('branch-name').value = ''; setAmend(false); lastFetch = Date.now() - 4 * 60_000;
   input('history-search').value = ''; searchMatches = [];
+  if (!openRepos.some(item => item.id === repo!.id)) openRepos.push(repo);
+  openRepos = openRepos.map(item => item.id === repo!.id ? repo! : item); rememberOpenRepos();
   save('recentRepositories', JSON.stringify(rememberRecent(recentRepositories(), repo.root)));
   health = []; loadHealth();
   save('lastRepository', repo.root); restoreDraft(); renderInfo(); renderFiles();
   get('working-diff').replaceChildren(); get('working-path').textContent = 'Select a file to review its diff.';
   get('error').hidden = true; await loadGraph(); notify('Opened ' + repo.root);
+}
+async function openPath(path: string, load = api.open) { await activateRepository(await load(path)); }
+async function closeRepository(item: RepoInfo) {
+  if (busy) return;
+  await api.closeRepository(item.id); openRepos = openRepos.filter(repo => repo.id !== item.id); rememberOpenRepos();
+  if (repo?.id !== item.id) return;
+  saveDraft();
+  const next = openRepos[0];
+  if (next) await run('Opening repository…', () => activateRepository(next, true));
+  else {
+    repo = null; page = null; selected = null; details = null; scope = null; epoch++; renderInfo(); renderFiles(); renderRepoTabs();
+    get('welcome').hidden = false; get('graph-scene').hidden = true; get('empty-history').hidden = true; get('changes').hidden = true; notify('Open a repository to begin.'); updateControls();
+  }
 }
 let splitDiff = stored('diffSplit') === '1';
 const shownPreviews = new Map<string, [Preview, ((hunk: number, header: string) => void) | undefined]>();
@@ -1185,11 +1217,12 @@ let lastFetch = 0;
 /** Fetches the upstream remote every few minutes so "behind" counts stay true; failures stay silent. */
 function fetchQuietly() {
   if (!repo?.remotes.length || busy || backgroundFetch || repo.operation || Date.now() - lastFetch < 5 * 60_000) return;
+  const id = repo.id; const currentEpoch = epoch;
   const remote = repo.remotes.find(remote => repo!.upstream?.startsWith(remote.name + '/')) ?? repo.remotes.find(remote => remote.name === 'origin') ?? repo.remotes[0];
   lastFetch = Date.now();
   const fetching = api.fetch(repo.id, remote.id, () => {}).catch(() => null);
   backgroundFetch = fetching;
-  void fetching.then(info => { backgroundFetch = null; if (info) void checkForChanges(); });
+  void fetching.then(info => { backgroundFetch = null; if (info && repo?.id === id && epoch === currentEpoch) void checkForChanges(); });
 }
 let update: [string, string] | null = null;
 async function checkUpdates(manual = false) {
@@ -1399,11 +1432,18 @@ if (isTauri()) {
   }).catch(report);
   void run('Starting…', async () => {
     const requested = await api.startup();
-    const path = requested ?? stored('lastRepository');
-    if (!path) { notify('Open a repository to begin.'); return; }
-    if (requested) { await openPath(requested); return; }
-    try { await openSaved(path); }
-    catch (error) { if (!String(error).includes('no longer available')) throw error; notify('Your last repository is no longer available. Open a repository to begin.'); }
+    const last = requested ?? stored('lastRepository');
+    let paths: string[] = [];
+    try { const saved = JSON.parse(stored('openRepositories') ?? '[]'); if (Array.isArray(saved)) paths = saved.filter((path): path is string => typeof path === 'string'); } catch { /* Ignore malformed tab state. */ }
+    if (requested) paths = [requested, ...paths.filter(path => path !== requested)];
+    if (last && !paths.includes(last)) paths.unshift(last);
+    for (const path of paths.slice(0, 12)) {
+      // openSaved forgets folders that were moved or deleted.
+      try { await openSaved(path); } catch (error) { if (!String(error).includes('no longer available')) throw error; }
+    }
+    const active = openRepos.find(item => item.root === last);
+    if (active) { save('lastRepository', active.root); if (active.id !== repo?.id) await activateRepository(active, true); }
+    if (!repo) notify('Open a repository to begin.');
   });
   if (!stored('onboarded')) { save('onboarded', '1'); dialog('help-dialog').showModal(); }
   void checkUpdates().catch(() => { /* Offline: try again tomorrow. */ });

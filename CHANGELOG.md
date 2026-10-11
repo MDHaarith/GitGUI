@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.15.0 — 2026-10-11
+- Open several repositories at once as tabs; open tabs are restored on startup
+
 ## 0.14.0 — 2026-10-11
 - Merge any branch into the current one from the sidebar
 - Revert, cherry-pick, tag, or reset the branch to any commit from its details

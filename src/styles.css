@@ -60,6 +60,12 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .secondary:hover:not(:disabled), .chip:hover:not(:disabled) { border-color: var(--edge-strong); background: var(--surface-2); }
 .context-branch { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 9999px; background: var(--surface-2); color: var(--ink-muted); font-size: 12px; font-weight: 500; white-space: nowrap; }
 .scopebar { grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 20px; background: var(--canvas); border-bottom: 1px solid var(--edge); font-size: 13px; min-width: 0; }
+.repo-tabs { display: flex; gap: 4px; min-width: 0; max-width: 34vw; overflow-x: auto; }
+.repo-tab { display: inline-flex; align-items: center; flex-shrink: 0; border: 1px solid var(--edge); border-radius: 7px; background: var(--surface-1); }
+.repo-tab-name, .repo-tab-close { height: 28px; border: 0; background: transparent; }
+.repo-tab-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.repo-tab-name[aria-pressed="true"] { color: var(--accent); }
+.repo-tab-close { padding-inline: 7px !important; color: var(--muted); }
 .scopebar select { height: 36px; padding: 0 12px; max-width: 220px; }
 #recent-repos { width: 180px; max-width: 20%; height: 40px; font-size: 12px; }
 .select-control { min-width: 0; flex-shrink: 0; }

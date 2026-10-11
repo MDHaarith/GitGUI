@@ -188,7 +188,7 @@ struct Repository {
 }
 #[derive(Default)]
 pub struct Backend {
-    repo: Option<Repository>,
+    repos: Vec<Repository>,
     sequence: u64,
 }
 
@@ -225,6 +225,15 @@ impl Backend {
             &chosen,
             &argv(&["rev-parse", "--show-toplevel"]),
         )?)));
+        if let Some(repository) = self.repos.iter_mut().find(|repo| repo.root == root) {
+            return repository.info();
+        }
+        if self.repos.len() >= 12 {
+            return Err(
+                "You can open up to 12 repositories at once. Close a tab before opening another."
+                    .into(),
+            );
+        }
         self.sequence += 1;
         let mut repository = Repository {
             id: self.sequence,
@@ -234,7 +243,7 @@ impl Backend {
             graph_sequence: 0,
         };
         let info = repository.info()?;
-        self.repo = Some(repository);
+        self.repos.push(repository);
         Ok(info)
     }
     pub fn init(&mut self, path: &str) -> Result<RepoInfo> {
@@ -294,10 +303,13 @@ impl Backend {
         repo.info()
     }
     fn repo(&mut self, id: u64) -> Result<&mut Repository> {
-        self.repo
-            .as_mut()
-            .filter(|repo| repo.id == id)
+        self.repos
+            .iter_mut()
+            .find(|repo| repo.id == id)
             .ok_or_else(|| "Repository selection changed. Open or refresh the repository.".into())
+    }
+    pub fn close_repository(&mut self, id: u64) {
+        self.repos.retain(|repo| repo.id != id);
     }
     pub fn status(&mut self, id: u64) -> Result<RepoInfo> {
         self.repo(id)?.info()

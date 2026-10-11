@@ -26,6 +26,7 @@ export interface AiProvider { kind: 'claude' | 'openai' | 'command'; baseUrl: st
 export const api = {
   startup: () => invoke<string | null>('startup_path'),
   open: (path: string) => invoke<RepoInfo>('open_repository', { path }),
+  closeRepository: (repoId: number) => invoke<void>('close_repository', { repoId }),
   init: (path: string) => invoke<RepoInfo>('init_repository', { path }),
   enableVersioning: (repoId: number) => invoke<RepoInfo>('enable_versioning', { repoId }),
   checkpoints: (repoId: number) => invoke<Checkpoint[]>('list_checkpoints', { repoId }),

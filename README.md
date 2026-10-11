@@ -14,7 +14,7 @@ stage/unstage whole files or single hunks, discard edits, stash work, create or
 amend commits, create, switch, rename, and delete branches, check out remote
 branches, merge, revert, cherry-pick, tag, reset, and clean up (rebase) commits,
 browse file history and blame, open pull requests, resolve conflicts block by
-block, free space taken by ignored build output and caches, and fetch/pull/push. Remotes are
+block, free space taken by ignored build output and caches, keep several repositories open as tabs, and fetch/pull/push. Remotes are
 fetched quietly every five minutes, and GitGUI checks GitHub once a day for a
 newer published release.
 

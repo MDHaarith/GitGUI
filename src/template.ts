@@ -24,6 +24,7 @@ export const markup = `
     <div class="window-controls" id="window-controls" hidden><button id="window-minimize" aria-label="Minimize window"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-chevron"/></svg></button><button id="window-maximize" aria-label="Maximize or restore window"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-diamond"/></svg></button><button id="window-close" aria-label="Close window"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-close"/></svg></button></div>
   </header>
   <nav class="scopebar" aria-label="History and repository actions">
+    <div class="repo-tabs" id="repo-tabs" role="group" aria-label="Open repositories"></div>
     <label class="muted" for="scope">Scope</label><select id="scope" data-repo><option value="">All branches</option></select>
     <div class="history-search" role="search" aria-label="Search loaded history">
       <div class="search-field"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-search"/></svg><input id="history-search" type="search" aria-label="Search loaded commits by message, author, or hash" placeholder="Search loaded commits" autocomplete="off"></div>
