@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.15.4 — 2026-10-11
+- Branch action menu opens leftward so the list scrollbar no longer covers it
+
 ## 0.15.3 — 2026-10-11
 - Branch and tag actions now live in a "⋯" menu (or right-click), so names keep their full width
 

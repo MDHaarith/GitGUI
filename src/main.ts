@@ -1358,7 +1358,8 @@ function openRefMenu(owner: HTMLButtonElement, actions: [string, () => void][]) 
   refMenu.hidden = false; refMenuOwner = owner; owner.setAttribute('aria-expanded', 'true');
   const box = owner.getBoundingClientRect(), width = refMenu.offsetWidth, height = refMenu.offsetHeight;
   // Fixed to the viewport so the scrolling sidebar never clips it; flips up near the bottom edge.
-  refMenu.style.left = Math.max(8, Math.min(box.left, innerWidth - width - 8)) + 'px';
+  // Right-aligned to the button so the menu opens away from the list scrollbar on its right.
+  refMenu.style.left = Math.max(8, box.right - width) + 'px';
   refMenu.style.top = (box.bottom + 4 + height > innerHeight - 8 ? Math.max(8, box.top - 4 - height) : box.bottom + 4) + 'px';
   refMenu.querySelector('button')?.focus();
 }
