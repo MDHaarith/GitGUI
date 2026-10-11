@@ -183,3 +183,8 @@ v2_78 = [
     "ffi/v2_78",
     "gobject_ffi/v2_78",
 ]
+
+# Vendored code predates this lint; its warnings are noise in our builds.
+[lints.rust]
+mismatched_lifetime_syntaxes = "allow"
+unused_parens = "allow"

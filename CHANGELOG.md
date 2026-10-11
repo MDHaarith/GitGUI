@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.15.1 — 2026-10-11
+- Silence compiler warning noise from the bundled glib library
+
 ## 0.15.0 — 2026-10-11
 - Open several repositories at once as tabs; open tabs are restored on startup
 
