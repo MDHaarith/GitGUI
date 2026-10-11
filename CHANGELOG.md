@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.1 — 2026-10-11
+- Restyle tip and error banners and keep consistent spacing above the workspace whether or not they show.
+- Stop the operation progress bar from overlapping the repository picker.
+- Redesign the Help dialog with step cards, a Git words table and a blurred backdrop.
+- Tidy the AI buttons and version picker under the commit message.
+- Show Fetch, Pull and Push in every repository (they open Publish when there is no remote) and remember dismissed tips across repositories.
+
 ## 0.11.0 — 2026-10-11
 - Replace the native title bar with built-in window controls in the toolbar.
 - Reload the changes list instead of showing "File changed" when a selected file went stale.

@@ -97,7 +97,7 @@ app.innerHTML = `
         <form class="composer" id="commit-form">
           <div class="label-row"><label for="summary">Summary</label><span id="summary-hint" class="summary-hint"></span></div><input id="summary" required maxlength="1000" autocomplete="off" placeholder="Describe this commit" aria-describedby="summary-hint">
           <label for="body">Description <span class="muted">(optional)</span></label><textarea id="body" maxlength="64000" rows="3"></textarea>
-          <div class="commit-row"><button type="button" id="ai-message" data-repo title="Let the AI write the commit message from the staged changes">Write message with AI</button><button type="button" id="ai-explain" data-repo title="Let the AI explain the staged changes in plain English">Explain staged changes</button><button type="button" id="ai-settings" title="Choose Claude, DeepSeek, OpenAI, Ollama, Codex, opencode, or any other AI">AI settings</button></div>
+          <div class="ai-row"><button type="button" class="chip" id="ai-message" data-repo title="Let the AI write the commit message from the staged changes">Write message with AI</button><button type="button" class="chip" id="ai-explain" data-repo title="Let the AI explain the staged changes in plain English">Explain staged changes</button><button type="button" class="chip" id="ai-settings" title="Choose Claude, DeepSeek, OpenAI, Ollama, Codex, opencode, or any other AI">AI settings</button></div>
           <div class="commit-row"><span id="version-controls"><label for="bump">Version <span class="mono" id="repo-version"></span></label> <select id="bump" data-repo><option value="minor">Minor · feature</option><option value="patch">Patch · fix</option><option value="major">Major · breaking</option><option value="">No bump</option></select></span><button id="enable-versioning" data-repo title="Block secrets and failing tests, and give every code commit its own version">Enable safeguards</button></div>
           <div class="commit-row"><span id="staged-count">0 staged files</span><button class="primary" id="commit-button" type="submit" data-repo>Commit staged</button></div>
         </form>
@@ -165,7 +165,8 @@ app.innerHTML = `
     <pre class="message ai-answer" id="ai-answer"></pre><p class="muted" id="ai-usage"></p>
   </dialog>
   <dialog class="branch-dialog wide-dialog" id="help-dialog" aria-labelledby="help-title">
-    <div class="dialog-head"><h2 id="help-title">Welcome to GitGUI</h2><form method="dialog"><button type="submit">Got it</button></form></div>
+    <div class="dialog-head"><h2 id="help-title">Welcome to GitGUI</h2><form method="dialog"><button type="submit">Close</button></form></div>
+    <h3 class="help-heading">How to work with an AI safely</h3>
     <ol class="tour">
       <li><strong>New project:</strong> Init repository creates one with safeguards: secrets and failing tests are blocked and every feature gets its own version.</li>
       <li><strong>Before asking an AI to change things:</strong> save a Checkpoint, or use Try something risky for big ideas.</li>
@@ -174,6 +175,7 @@ app.innerHTML = `
       <li><strong>Back it up:</strong> Publish to GitHub once, then Push after each commit.</li>
       <li><strong>Something broke?</strong> Run shows your app's output and explains common crashes; Checkpoints and Undo last commit take you back.</li>
     </ol>
+    <h3 class="help-heading">Git words</h3>
     <dl class="glossary">
       <dt>Commit</dt><dd>A saved version of your project with a message saying what changed.</dd>
       <dt>Stage</dt><dd>Choose which changed files go into the next commit.</dd>
@@ -184,6 +186,7 @@ app.innerHTML = `
       <dt>Checkpoint</dt><dd>A GitGUI snapshot of all files that is not a commit; restore it any time.</dd>
       <dt>HEAD</dt><dd>The commit you are on right now.</dd>
     </dl>
+    <form method="dialog" class="dialog-foot"><button class="primary" type="submit">Got it</button></form>
   </dialog>
   <dialog class="branch-dialog" id="remote-dialog" aria-labelledby="remote-title">
     <div class="dialog-head"><h2 id="remote-title">Choose remote</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
@@ -355,7 +358,6 @@ function renderInfo() {
   get('behind-count').textContent = String(repo?.behind ?? 0); get('behind-count').hidden = !repo?.behind || !repo.upstream;
   get('ahead-count').textContent = String(repo?.ahead ?? 0); get('ahead-count').hidden = !repo?.ahead || !repo.upstream;
   const offline = !!repo && !repo.remotes.length;
-  for (const id of ['fetch', 'pull', 'push']) get(id).hidden = offline;
   get('publish').hidden = !offline;
   get('changes-count').textContent = String(repo?.files.length ?? 0);
   get('staged-count').textContent = stagedFiles().length + ' staged ' + (stagedFiles().length === 1 ? 'file' : 'files');
@@ -697,7 +699,7 @@ async function publish() {
   dialog('publish-dialog').close();
   await mutate('Publishing…', () => api.publish(repo!.id, main, url, repo!.token));
 }
-const dismissedHints = new Set<string>();
+const dismissedHints = new Set<string>((() => { try { return JSON.parse(stored('dismissedHints') ?? '[]') as string[]; } catch { return []; } })());
 function renderHints(state: string[], warnings: string[]) {
   const items = [...state.map(text => ({ text, kind: 'state' })), ...warnings.map(text => ({ text, kind: 'warning' }))]
     .filter(note => !dismissedHints.has(note.text))
@@ -705,7 +707,7 @@ function renderHints(state: string[], warnings: string[]) {
       const item = document.createElement('li'); item.className = 'hint hint-' + note.kind;
       const text = document.createElement('span'); text.textContent = note.text;
       const close = document.createElement('button'); close.type = 'button'; close.textContent = '×'; close.setAttribute('aria-label', 'Dismiss this tip');
-      close.onclick = () => { dismissedHints.add(note.text); renderInfo(); };
+      close.onclick = () => { dismissedHints.add(note.text); save('dismissedHints', JSON.stringify([...dismissedHints])); renderInfo(); };
       item.append(text, close); return item;
     });
   get('git-hint').replaceChildren(...items); get('git-hint').hidden = !items.length;
@@ -1031,9 +1033,10 @@ button('refresh').onclick = () => {
   const icon = get('refresh-icon'); icon.classList.remove('spinning'); void icon.getBoundingClientRect(); icon.classList.add('spinning');
   void run('Refreshing…', refresh);
 };
-button('fetch').onclick = () => chooseRemote('fetch');
-button('pull').onclick = () => { if (repo) void mutate('Pulling fast-forward update…', () => api.pull(repo!.id, repo!.token, progressReporter())); };
-button('push').onclick = () => { if (!repo) return; if (!repo.upstream) chooseRemote('push'); else void mutate('Pushing current branch…', () => api.push(repo!.id, null, repo!.token, progressReporter())); };
+// Fetch/Pull/Push stay visible in every repository; without a remote they lead to Publish.
+button('fetch').onclick = () => { if (repo && !repo.remotes.length) openPublish(); else chooseRemote('fetch'); };
+button('pull').onclick = () => { if (repo && !repo.remotes.length) openPublish(); else if (repo) void mutate('Pulling fast-forward update…', () => api.pull(repo!.id, repo!.token, progressReporter())); };
+button('push').onclick = () => { if (!repo) return; if (!repo.remotes.length) openPublish(); else if (!repo.upstream) chooseRemote('push'); else void mutate('Pushing current branch…', () => api.push(repo!.id, null, repo!.token, progressReporter())); };
 button('details-button').onclick = () => { if (get('details').hidden) { void openDetails(); get('details').focus(); } else closeDetails(); };
 button('close-details').onclick = closeDetails;
 input('history-search').oninput = () => searchHistory(true);
