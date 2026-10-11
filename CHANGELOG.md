@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.12.2 — 2026-10-11
+- Smaller Rust build cache: desktop-only crate types, no debug info for dependencies
+
 ## 0.12.1 — 2026-10-11
 - Keep the window controls visible: sync buttons show icons only in windows narrower than 1500px.
 
