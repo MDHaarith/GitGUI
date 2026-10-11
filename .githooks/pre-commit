@@ -1,5 +1,5 @@
 #!/bin/sh
-# GitGUI versioning: commits that change code must bump the version and add a changelog entry.
+# GitGUI versioning: block secrets; code commits need passing tests, a version bump, and a changelog entry.
 version() {
   for f in package.json Cargo.toml VERSION; do
     git cat-file -e "$1$f" 2>/dev/null || continue
@@ -8,9 +8,18 @@ version() {
     return
   done
 }
-fail() { echo "GitGUI versioning: $1" >&2; exit 1; }
+fail() { echo "GitGUI safeguards: $1" >&2; exit 1; }
+git diff --cached --name-only --diff-filter=AR | grep -E '(^|/)\.env(\.[^/]*)?$' | grep -Evq '\.(example|sample|template)$' && fail "a .env file is staged. It usually holds passwords and API keys: unstage it and add it to .gitignore"
+git diff --cached -U0 --no-color | grep '^+[^+]' | grep -Eq 'AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----' && fail "a staged line looks like an API key or private key. Move it to an ignored .env file and load it from the environment"
 git diff --cached --name-only | grep -Evq '(\.md$|^docs/|(^|/)tests?/|\.test\.|_test\.)' || exit 0
 new=$(version :)
 [ -n "$new" ] || fail "no version found in package.json, Cargo.toml, or VERSION"
-[ "$new" != "$(version HEAD: 2>/dev/null)" ] || fail "code changed but the version is still $new. Bump it (patch: fix, minor: feature, major: breaking change) and stage it"
+# GitGUI sets gitgui.amend when amending: the replaced commit already carries the bump.
+base=HEAD; [ "$(git config --bool gitgui.amend)" = true ] && base=HEAD~1
+[ "$new" != "$(version "$base:" 2>/dev/null)" ] || fail "code changed but the version is still $new. Bump it (patch: fix, minor: feature, major: breaking change) and stage it"
 git show :CHANGELOG.md 2>/dev/null | grep -q "^## $new " || fail "stage a CHANGELOG.md entry headed '## $new — $(date +%F)'"
+tests=$(git config gitgui.testCommand)
+[ -z "$tests" ] && exit 0
+# shortcut: tests run on the working tree, not only the staged content.
+log=$(git rev-parse --git-path gitgui-tests.log)
+sh -c "$tests" >"$log" 2>&1 || { tail -n 20 "$log" >&2; fail "tests failed ($tests). Fix them before committing; full output: $log"; }

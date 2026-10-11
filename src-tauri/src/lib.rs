@@ -2,7 +2,9 @@ pub mod assist;
 pub mod git;
 pub mod runner;
 pub mod version;
-use git::{Backend, Checkpoint, CommitDetails, GraphPage, Preview, Progress, RepoInfo, Session};
+use git::{
+    Backend, Checkpoint, CommitDetails, GraphPage, Preview, Progress, RepoInfo, Session, Stash,
+};
 use std::sync::{Arc, Mutex};
 use tauri::{ipc::Channel, State};
 
@@ -155,10 +157,11 @@ async fn create_commit(
     token: String,
     detached_ok: bool,
     bump: Option<String>,
+    amend: bool,
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
-        b.commit(repo_id, &message, &token, detached_ok, bump)
+        b.commit(repo_id, &message, &token, detached_ok, bump, amend)
     })
     .await
 }
@@ -412,6 +415,164 @@ fn stop_project() -> git::Result<()> {
     runner::stop()
 }
 
+#[tauri::command]
+async fn list_stashes(repo_id: u64, state: State<'_, AppState>) -> git::Result<Vec<Stash>> {
+    task(state, false, move |b| b.stashes(repo_id)).await
+}
+#[tauri::command]
+async fn save_stash(
+    repo_id: u64,
+    message: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.stash_save(repo_id, &message, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn apply_stash(
+    repo_id: u64,
+    index: u32,
+    message: String,
+    pop: bool,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.stash_apply(repo_id, index, &message, pop, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn drop_stash(
+    repo_id: u64,
+    index: u32,
+    message: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.stash_drop(repo_id, index, &message, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn clone_repository(
+    url: String,
+    parent: String,
+    on_progress: Channel<String>,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    let progress: Progress = Arc::new(move |message| {
+        let _ = on_progress.send(message);
+    });
+    task(state, true, move |b| b.clone(&url, &parent, Some(progress))).await
+}
+#[tauri::command]
+async fn checkout_remote(
+    repo_id: u64,
+    reference_id: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.checkout_remote(repo_id, &reference_id, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn stage_hunk(
+    repo_id: u64,
+    file_id: String,
+    hunk: usize,
+    header: String,
+    unstage: bool,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.stage_hunk(repo_id, &file_id, hunk, &header, unstage, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn discard_files(
+    repo_id: u64,
+    file_ids: Vec<String>,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| b.discard(repo_id, &file_ids, &token)).await
+}
+#[tauri::command]
+async fn get_conflict(
+    repo_id: u64,
+    file_id: String,
+    state: State<'_, AppState>,
+) -> git::Result<String> {
+    task(state, false, move |b| b.conflict_text(repo_id, &file_id)).await
+}
+#[tauri::command]
+async fn save_resolution(
+    repo_id: u64,
+    file_id: String,
+    content: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.save_resolution(repo_id, &file_id, &content, &token)
+    })
+    .await
+}
+const RELEASES: &str = "https://github.com/MDHaarith/GitGUI/releases";
+/// Newest published release as (version, page URL), read from the GitHub API through curl.
+#[tauri::command]
+async fn latest_release() -> git::Result<Option<(String, String)>> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let output = std::process::Command::new("curl")
+            .args([
+                "-sSf",
+                "--max-time",
+                "15",
+                "-H",
+                "accept: application/vnd.github+json",
+            ])
+            .arg("https://api.github.com/repos/MDHaarith/GitGUI/releases/latest")
+            .env_remove("LD_LIBRARY_PATH")
+            .env_remove("LD_PRELOAD")
+            .output()
+            .map_err(|_| "Install curl to check for updates.".to_owned())?;
+        if !output.status.success() {
+            return Ok(None);
+        }
+        let release: serde_json::Value =
+            serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+        let tag = release["tag_name"].as_str().unwrap_or_default();
+        let url = release["html_url"].as_str().unwrap_or(RELEASES);
+        Ok((!tag.is_empty() && url.starts_with(RELEASES))
+            .then(|| (tag.trim_start_matches('v').to_owned(), url.to_owned())))
+    })
+    .await
+    .map_err(|e| format!("Update check failed: {e}"))?
+}
+/// Opens a GitGUI release page in the browser; other URLs are refused.
+#[tauri::command]
+fn open_release(url: String) -> git::Result<()> {
+    if !url.starts_with(RELEASES) || url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("Only GitGUI release pages can be opened.".into());
+    }
+    std::process::Command::new("xdg-open")
+        .arg(&url)
+        .env_remove("LD_LIBRARY_PATH")
+        .env_remove("LD_PRELOAD")
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Cannot open the browser: {e}. Visit {url}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -456,7 +617,19 @@ pub fn run() {
             get_ai_provider,
             save_ai_provider,
             run_project,
-            stop_project
+            stop_project,
+            list_stashes,
+            save_stash,
+            apply_stash,
+            drop_stash,
+            clone_repository,
+            checkout_remote,
+            stage_hunk,
+            discard_files,
+            get_conflict,
+            save_resolution,
+            latest_release,
+            open_release
         ])
         .run(tauri::generate_context!())
         .expect("Could not run GitGUI");

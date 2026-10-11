@@ -334,3 +334,37 @@ dialog::backdrop { background: rgb(0 0 0 / .8); backdrop-filter: blur(6px); }
 .experiment-bar { display: inline-flex; align-items: center; gap: 6px; padding: 2px 2px 2px 10px; border: 1px solid #f2b56b; border-radius: 9999px; color: #f2b56b; font-size: 12px; }
 .experiment-bar button { height: 26px; }
 .choice { display: flex; gap: 8px; align-items: start; color: var(--ink); }
+
+.welcome-actions { display: flex; gap: 8px; justify-content: center; }
+.preview-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.preview-head .preview-label { flex: 1; margin: 0; }
+.diff-toggle { height: 28px; padding: 0 10px; font-size: 12px; border: 1px solid var(--edge); background: var(--surface-1); flex: none; }
+.diff-toggle[aria-pressed="true"] { color: var(--ink); background: var(--surface-3); border-color: var(--edge-strong); }
+.diff-line.wide { display: block; }
+.diff-text.added { color: #a2d39f; }
+.diff-text.removed { color: #eba3ae; }
+.diff mark { color: inherit; border-radius: 2px; }
+.diff-text.added mark { background: rgb(46 160 67 / .35); }
+.diff-text.removed mark { background: rgb(248 81 73 / .35); }
+.diff.split .diff-line.pair { grid-template-columns: 4ch minmax(0, 1fr) 4ch minmax(0, 1fr); }
+.diff.split .diff-text { white-space: pre-wrap; overflow-wrap: anywhere; min-height: 1.6em; }
+.diff.split .diff-text.added { background: rgb(46 160 67 / .1); }
+.diff.split .diff-text.removed { background: rgb(248 81 73 / .1); }
+.hunk-action { height: 22px; margin-left: 12px; padding: 0 8px; font: 500 11px Geist, system-ui, sans-serif; border: 1px solid var(--edge-strong); border-radius: 6px; color: var(--ink-muted); }
+.amend-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.amend-row .muted { font-size: 11px; }
+.ref-row { display: flex; align-items: center; gap: 2px; }
+.ref-row .ref-item { flex: 1; min-width: 0; }
+.ref-action { flex: none; height: 26px; padding: 0 6px; font-size: 11px; color: var(--muted); opacity: 0; }
+.ref-row:hover .ref-action, .ref-row:focus-within .ref-action { opacity: 1; }
+.ref-note { margin: 16px 8px 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.hint .hint-action { height: 28px; padding: 0 10px; font-size: 12px; }
+.conflict-blocks { display: grid; gap: 12px; }
+.conflict-block { margin: 0; padding: 12px; border: 1px solid var(--edge); border-radius: 10px; }
+.conflict-block legend { padding: 0 6px; color: var(--muted); font-size: 12px; }
+.conflict-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.conflict-sides figure { margin: 0; min-width: 0; }
+.conflict-sides figcaption { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.conflict-sides pre { max-height: 200px; overflow: auto; padding: 8px; border-radius: 6px; background: var(--surface-1); white-space: pre-wrap; overflow-wrap: anywhere; }
+#search-all { height: 28px; padding: 0 10px; font-size: 12px; }
+@media (pointer: coarse) { .ref-action { opacity: 1; } }

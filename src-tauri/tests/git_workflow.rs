@@ -94,7 +94,7 @@ fn unborn_unstage_preserves_content_and_first_commit_works() {
     assert!(unstaged.files[0].untracked);
     let staged = b.stage(info.id, &[id], false, &unstaged.token).unwrap();
     let committed = b
-        .commit(info.id, "First commit", &staged.token, false, None)
+        .commit(info.id, "First commit", &staged.token, false, None, false)
         .unwrap();
     assert!(committed.head.is_some());
     assert!(committed.files.is_empty());
@@ -145,6 +145,7 @@ fn commit_uses_only_index_and_keeps_unstaged_edits() {
             &staged.token,
             false,
             None,
+            false,
         )
         .unwrap();
     assert_eq!(cmd(&f.root, &["show", "HEAD:one"]), "staged version");
@@ -165,7 +166,7 @@ fn stale_token_and_invalid_inputs_fail_without_mutation() {
     cmd(&f.root, &["add", "one"]);
     let old_head = info.head.clone();
     assert!(b
-        .commit(info.id, "stale", &info.token, false, None)
+        .commit(info.id, "stale", &info.token, false, None, false)
         .unwrap_err()
         .contains("changed"));
     assert_eq!(b.status(info.id).unwrap().head, old_head);
@@ -202,8 +203,15 @@ fn paths_are_literal_and_non_utf8_names_remain_addressable() {
         assert_eq!(b.working_diff(info.id, id, false).unwrap().text, "data\n");
     }
     let staged = b.stage(info.id, &ids, false, &info.token).unwrap();
-    b.commit(info.id, "Literal filenames", &staged.token, false, None)
-        .unwrap();
+    b.commit(
+        info.id,
+        "Literal filenames",
+        &staged.token,
+        false,
+        None,
+        false,
+    )
+    .unwrap();
     assert!(b.status(info.id).unwrap().files.is_empty());
     for name in &names {
         assert_eq!(fs::read(f.root.join(name)).unwrap(), b"data\n");
@@ -234,7 +242,7 @@ fn rename_unstage_keeps_working_tree_and_commit_diff_tracks_both_names() {
     let ids: Vec<_> = next.files.iter().map(|file| file.id.clone()).collect();
     let next = b.stage(info.id, &ids, false, &next.token).unwrap();
     let next = b
-        .commit(info.id, "Rename", &next.token, false, None)
+        .commit(info.id, "Rename", &next.token, false, None, false)
         .unwrap();
     let details = b
         .commit_details(info.id, next.head.as_deref().unwrap(), None)
@@ -270,7 +278,7 @@ fn failed_hook_leaves_staging_and_head_intact() {
     .unwrap();
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
     let error = b
-        .commit(info.id, "Must fail", &info.token, false, None)
+        .commit(info.id, "Must fail", &info.token, false, None, false)
         .unwrap_err();
     assert!(error.contains("fixture-hook-rejected"));
     let current = b.status(info.id).unwrap();
@@ -357,7 +365,14 @@ fn branch_creation_detached_head_and_worktree_switch_are_safe() {
     let id = current.files[0].id.clone();
     let current = b.stage(info.id, &[id], false, &current.token).unwrap();
     assert!(b
-        .commit(info.id, "no acknowledgment", &current.token, false, None)
+        .commit(
+            info.id,
+            "no acknowledgment",
+            &current.token,
+            false,
+            None,
+            false
+        )
         .is_err());
     let current = b
         .commit(
@@ -366,6 +381,7 @@ fn branch_creation_detached_head_and_worktree_switch_are_safe() {
             &current.token,
             true,
             None,
+            false,
         )
         .unwrap();
     let graph = b.graph(info.id, None, 200, None).unwrap();
@@ -550,7 +566,7 @@ fn versioning_hooks_require_bumps_and_tag_new_versions() {
     };
     let staged = stage_all(&mut b, &info);
     let info = b
-        .commit(info.id, "Start", &staged.token, false, None)
+        .commit(info.id, "Start", &staged.token, false, None, false)
         .unwrap();
     assert_eq!(cmd(&f.root, &["tag"]), "v0.1.0");
 
@@ -558,7 +574,7 @@ fn versioning_hooks_require_bumps_and_tag_new_versions() {
     let current = b.status(info.id).unwrap();
     let staged = stage_all(&mut b, &current);
     let error = b
-        .commit(info.id, "Add main", &staged.token, false, None)
+        .commit(info.id, "Add main", &staged.token, false, None, false)
         .unwrap_err();
     assert!(error.contains("version is still 0.1.0"), "{error}");
     let staged = b.status(info.id).unwrap();
@@ -569,6 +585,7 @@ fn versioning_hooks_require_bumps_and_tag_new_versions() {
             &staged.token,
             false,
             Some("minor".into()),
+            false,
         )
         .unwrap();
     assert_eq!(info.version.as_deref(), Some("0.2.0"));
@@ -643,14 +660,14 @@ fn safeguard_hooks_block_secrets_env_files_and_failing_tests() {
     };
     let staged = stage_all(&mut b, &info);
     let info = b
-        .commit(info.id, "Start", &staged.token, false, None)
+        .commit(info.id, "Start", &staged.token, false, None, false)
         .unwrap();
 
     f.write("config.js", b"const key = 'AKIAABCDEFGHIJKLMNOP';\n");
     let current = b.status(info.id).unwrap();
     let staged = stage_all(&mut b, &current);
     let error = b
-        .commit(info.id, "Add config", &staged.token, false, None)
+        .commit(info.id, "Add config", &staged.token, false, None, false)
         .unwrap_err();
     assert!(error.contains("looks like an API key"), "{error}");
     cmd(&f.root, &["reset", "-q"]);
@@ -660,7 +677,7 @@ fn safeguard_hooks_block_secrets_env_files_and_failing_tests() {
     cmd(&f.root, &["add", "-f", ".env"]);
     let current = b.status(info.id).unwrap();
     let error = b
-        .commit(info.id, "Add env", &current.token, false, None)
+        .commit(info.id, "Add env", &current.token, false, None, false)
         .unwrap_err();
     assert!(error.contains(".env file is staged"), "{error}");
     cmd(&f.root, &["rm", "-q", "--cached", ".env"]);
@@ -683,6 +700,7 @@ fn safeguard_hooks_block_secrets_env_files_and_failing_tests() {
             &staged.token,
             false,
             Some("patch".into()),
+            false,
         )
         .unwrap_err();
     assert!(
@@ -906,4 +924,182 @@ fn refs_token_tracks_ref_moves_that_leave_the_index_alone() {
     assert_ne!(tagged.refs_token, info.refs_token);
     cmd(&f.root, &["branch", "side", &base]);
     assert_ne!(b.status(info.id).unwrap().refs_token, tagged.refs_token);
+}
+
+#[test]
+fn stash_amend_hunks_and_discard() {
+    let f = Fixture::new();
+    let lines: String = (1..=30).map(|n| format!("line {n}\n")).collect();
+    f.commit("a.txt", &lines, "base");
+    let (mut b, info) = f.open();
+
+    // Stash puts edits and new files aside and brings them back.
+    f.write("a.txt", b"changed\n");
+    f.write("new.txt", b"new\n");
+    let info = b.status(info.id).unwrap();
+    let info = b.stash_save(info.id, "wip", &info.token).unwrap();
+    assert!(info.files.is_empty());
+    let stashes = b.stashes(info.id).unwrap();
+    assert_eq!(stashes.len(), 1);
+    assert!(stashes[0].message.contains("wip"));
+    assert!(b
+        .stash_apply(info.id, 0, "other", true, &info.token)
+        .unwrap_err()
+        .contains("changed"));
+    let info = b
+        .stash_apply(info.id, 0, &stashes[0].message, true, &info.token)
+        .unwrap();
+    assert_eq!(info.files.len(), 2);
+    assert!(b.stashes(info.id).unwrap().is_empty());
+
+    // Discard restores tracked files and deletes untracked ones, after a checkpoint.
+    let ids: Vec<_> = info.files.iter().map(|x| x.id.clone()).collect();
+    let info = b.discard(info.id, &ids, &info.token).unwrap();
+    assert!(info.files.is_empty());
+    assert!(!f.root.join("new.txt").exists());
+    assert!(b.checkpoints(info.id).unwrap()[0]
+        .label
+        .contains("discarding"));
+
+    // One hunk of two is staged; the other stays unstaged.
+    let edited = lines
+        .replace("line 2\n", "two\n")
+        .replace("line 29\n", "twenty-nine\n");
+    f.write("a.txt", edited.as_bytes());
+    let info = b.status(info.id).unwrap();
+    let file = info.files[0].id.clone();
+    assert!(b
+        .stage_hunk(info.id, &file, 0, "@@ wrong @@", false, &info.token)
+        .unwrap_err()
+        .contains("changed"));
+    let header = b.working_diff(info.id, &file, false).unwrap().text;
+    let header = header
+        .lines()
+        .find(|l| l.starts_with("@@"))
+        .unwrap()
+        .to_owned();
+    let info = b
+        .stage_hunk(info.id, &file, 0, &header, false, &info.token)
+        .unwrap();
+    let staged = cmd(&f.root, &["diff", "--cached"]);
+    assert!(staged.contains("+two") && !staged.contains("twenty-nine"));
+    let header = cmd(&f.root, &["diff", "--cached"]);
+    let header = header
+        .lines()
+        .find(|l| l.starts_with("@@"))
+        .unwrap()
+        .to_owned();
+    let info = b
+        .stage_hunk(info.id, &file, 0, &header, true, &info.token)
+        .unwrap();
+    assert_eq!(cmd(&f.root, &["diff", "--cached"]), "");
+
+    // Amend replaces the last commit's message (and adds staged files) but not after a push.
+    let info = b.stage(info.id, &[file], false, &info.token).unwrap();
+    let info = b
+        .commit(info.id, "edit", &info.token, false, None, false)
+        .unwrap();
+    let before = info.head.clone().unwrap();
+    let info = b
+        .commit(info.id, "edit, reworded", &info.token, false, None, true)
+        .unwrap();
+    assert_ne!(info.head.as_deref(), Some(before.as_str()));
+    assert_eq!(
+        cmd(&f.root, &["log", "-1", "--format=%s"]),
+        "edit, reworded"
+    );
+    assert_eq!(cmd(&f.root, &["rev-list", "--count", "HEAD"]), "2");
+}
+
+#[test]
+fn amend_keeps_version_tags_on_the_new_commit() {
+    let f = Fixture::new();
+    let (mut b, info) = f.open();
+    let info = b.enable_versioning(info.id).unwrap();
+    let ids: Vec<_> = info.files.iter().map(|x| x.id.clone()).collect();
+    let info = b.stage(info.id, &ids, false, &info.token).unwrap();
+    let info = b
+        .commit(info.id, "Start", &info.token, false, None, false)
+        .unwrap();
+    f.write("main.rs", b"fn main() {}\n");
+    let info = b.status(info.id).unwrap();
+    let ids: Vec<_> = info.files.iter().map(|x| x.id.clone()).collect();
+    let info = b.stage(info.id, &ids, false, &info.token).unwrap();
+    let info = b
+        .commit(
+            info.id,
+            "Add main",
+            &info.token,
+            false,
+            Some("minor".into()),
+            false,
+        )
+        .unwrap();
+    // Amending a code change must not ask for a second version bump.
+    f.write("main.rs", b"fn main() { println!(); }\n");
+    let info = b.status(info.id).unwrap();
+    let ids: Vec<_> = info.files.iter().map(|x| x.id.clone()).collect();
+    let info = b.stage(info.id, &ids, false, &info.token).unwrap();
+    let info = b
+        .commit(info.id, "Add main", &info.token, false, None, true)
+        .unwrap();
+    assert_eq!(info.version.as_deref(), Some("0.2.0"));
+    assert_eq!(
+        cmd(&f.root, &["rev-parse", "v0.2.0^{commit}"]),
+        info.head.unwrap()
+    );
+}
+
+#[test]
+fn remote_branches_check_out_clone_and_conflict_blocks() {
+    let a = Fixture::new();
+    a.commit("a.txt", "base\n", "base");
+    cmd(&a.root, &["branch", "feature"]);
+    let parent = a.temp.path().join("clones");
+    fs::create_dir(&parent).unwrap();
+    let mut b = Backend::default();
+    let info = b
+        .clone(a.root.to_str().unwrap(), parent.to_str().unwrap(), None)
+        .unwrap();
+    assert!(info.root.ends_with("clones/repo"));
+    assert!(b
+        .clone(a.root.to_str().unwrap(), parent.to_str().unwrap(), None)
+        .unwrap_err()
+        .contains("already exists"));
+    let feature = b
+        .graph(info.id, None, 10, None)
+        .unwrap()
+        .refs
+        .into_iter()
+        .find(|r| r.kind == "remote" && r.name == "origin/feature")
+        .unwrap();
+    let info = b
+        .checkout_remote(info.id, &feature.id, &info.token)
+        .unwrap();
+    assert_eq!(info.branch.as_deref(), Some("feature"));
+    assert_eq!(info.upstream.as_deref(), Some("origin/feature"));
+
+    let f = Fixture::new();
+    f.commit("a.txt", "top\nbase\nend\n", "base");
+    cmd(&f.root, &["switch", "-q", "-c", "other"]);
+    f.commit("a.txt", "top\ntheirs\nend\n", "theirs");
+    cmd(&f.root, &["switch", "-q", "main"]);
+    f.commit("a.txt", "top\nours\nend\n", "ours");
+    let _ = Command::new("git")
+        .current_dir(&f.root)
+        .args(["merge", "other"])
+        .output()
+        .unwrap();
+    let (mut b, info) = f.open();
+    let file = info.files.iter().find(|x| x.conflicted).unwrap().id.clone();
+    let text = b.conflict_text(info.id, &file).unwrap();
+    assert!(text.contains("<<<<<<< ") && text.contains("theirs"));
+    assert!(b
+        .save_resolution(info.id, &file, &text, &info.token)
+        .unwrap_err()
+        .contains("Choose a side"));
+    let info = b
+        .save_resolution(info.id, &file, "top\nours\ntheirs\nend\n", &info.token)
+        .unwrap();
+    assert_eq!(info.operation.as_deref(), Some("merge"));
 }

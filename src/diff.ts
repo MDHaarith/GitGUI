@@ -21,3 +21,26 @@ export function numberDiff(text: string, binary = false): DiffLine[] {
     return line;
   });
 }
+
+/** Lengths of the unchanged start and end of two lines, so only the changed middle is highlighted. */
+export function changedRange(a: string, b: string): [number, number] {
+  const max = Math.min(a.length, b.length);
+  let start = 0;
+  while (start < max && a[start] === b[start]) start++;
+  let end = 0;
+  while (end < max - start && a[a.length - 1 - end] === b[b.length - 1 - end]) end++;
+  return [start, end];
+}
+
+/** Rows for a side-by-side view: each run of removed lines is paired with the added lines after it. */
+export function pairLines(lines: DiffLine[]): [DiffLine | null, DiffLine | null][] {
+  const rows: [DiffLine | null, DiffLine | null][] = [];
+  for (let i = 0; i < lines.length;) {
+    if (lines[i].kind !== 'removed' && lines[i].kind !== 'added') { rows.push([lines[i], lines[i]]); i++; continue; }
+    const removed: DiffLine[] = [], added: DiffLine[] = [];
+    while (lines[i]?.kind === 'removed') removed.push(lines[i++]);
+    while (lines[i]?.kind === 'added') added.push(lines[i++]);
+    for (let k = 0; k < Math.max(removed.length, added.length); k++) rows.push([removed[k] ?? null, added[k] ?? null]);
+  }
+  return rows;
+}

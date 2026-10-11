@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.12.0 — 2026-10-11
+- Add stashes: put changes aside from Changes or Tools › Stashes and bring them back later.
+- Add "Amend last commit" to the commit form; pushed commits are refused and version tags move to the new commit.
+- Add Clone to the toolbar and welcome screen, with live progress.
+- Show Switch and Check out actions on sidebar branches; checking out a remote branch creates a tracking local branch.
+- Stage and unstage single hunks from the working diff.
+- Add Discard to unstaged files; a checkpoint is saved first.
+- Resolve conflicts block by block (yours, incoming, or both) in a new dialog.
+- Add a side-by-side diff view and highlight the changed words in edited lines.
+- Add "Search all history" when matches may be beyond the loaded commits.
+- Fetch the upstream remote quietly every five minutes so ahead/behind counts stay current.
+- Explain straight-line history when several branches are stacked on one line.
+- Add keyboard shortcuts: ↑/↓ and Space in Changes, Ctrl+Shift+P to push; list them in Help.
+- Check GitHub once a day (or from Tools) for a newer GitGUI release.
+- Split main.ts and git.rs into smaller modules and add a headless UI layout test (npm run test:ui).
+- Block staged .env files and API keys in the safeguard hook, and ignore .env.
+
 ## 0.11.1 — 2026-10-11
 - Restyle tip and error banners and keep consistent spacing above the workspace whether or not they show.
 - Stop the operation progress bar from overlapping the repository picker.

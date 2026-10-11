@@ -5,3 +5,4 @@
 /test-results/
 /artifacts/
 *.log
+.env

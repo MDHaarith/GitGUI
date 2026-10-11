@@ -1,7 +1,7 @@
 {
   "name": "gitgui",
   "private": true,
-  "version": "0.11.1",
+  "version": "0.12.0",
   "type": "module",
   "scripts": {
     "prebuild": "node scripts/version.mjs --check",
@@ -13,7 +13,8 @@
     "version:check": "node scripts/version.mjs --check",
     "tauri": "tauri",
     "prepare": "git config core.hooksPath .githooks",
-    "install:app": "sh scripts/install.sh"
+    "install:app": "sh scripts/install.sh",
+    "test:ui": "node --test tests/ui.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.2",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.1",
+    "playwright-core": "1.64.0",
     "typescript": "7.0.2",
     "vite": "8.3.4"
   }

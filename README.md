@@ -8,9 +8,13 @@ a sidebar entry to filter history, or All branches to see their connections.
 The graph keeps inline ref labels and opens commit details on demand. Visual
 conventions live in `DESIGN.md`.
 
-Open an existing repository or linked worktree, browse branches and merge parents,
-inspect commit or working-tree diffs, stage/unstage whole files, create commits,
-create, switch, rename, and delete local branches, and fetch/pull/push.
+Open, init, or clone a repository, browse branches and merge parents, inspect
+commit or working-tree diffs (unified or side by side, with changed words marked),
+stage/unstage whole files or single hunks, discard edits, stash work, create or
+amend commits, create, switch, rename, and delete branches, check out remote
+branches, resolve conflicts block by block, and fetch/pull/push. Remotes are
+fetched quietly every five minutes, and GitGUI checks GitHub once a day for a
+newer published release.
 
 ## Install
 
@@ -165,6 +169,7 @@ pin the installed dependency graph. Fonts and their OFL licenses are in
 ```sh
 npm run version:check
 npm test
+npm run test:ui   # real UI in headless Chromium against a mocked Tauri bridge
 npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
@@ -235,11 +240,13 @@ env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE \
   2 MiB and 5,000 rendered lines, with an explicit truncation notice.
 - Pull requires a clean working tree and uses fast-forward only. Push sends only
   the current branch and never force-pushes or mirrors other refs.
-- Conflicts are resolved per whole file (ours, theirs, or hand-edited); multi-commit
-  sequencer operations must be completed in the terminal.
-- Clone, hunk staging, stash management, history rewriting beyond undoing the last
-  unpushed commit, in-app conflict editing, and nested submodule operations are
-  outside this release. `.github/workflows/release.yml` builds Linux, macOS, and
+- Conflicts are resolved per file or per conflict block (yours, incoming, or both);
+  multi-commit sequencer operations must be completed in the terminal.
+- Staging works per file or per hunk, not per line. History search covers up to
+  10,000 loaded commits. Amend and undo refuse commits that were already pushed.
+- Updates are announced, not installed: Download opens the release page. Releases
+  start as drafts, which the update check cannot see until they are published.
+- Nested submodule operations are outside this release. `.github/workflows/release.yml` builds Linux, macOS, and
   Windows installers for each `v*` tag into a draft release (untested until the
   repository is on GitHub).
 

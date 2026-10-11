@@ -21,3 +21,13 @@ test('patch content resembling file headers keeps its line numbers', () => {
   assert.equal(lines[3].newLine, 1);
   assert.equal(numberDiff('--- raw text')[0].newLine, 1);
 });
+
+test('side-by-side rows pair removed runs with the added lines that follow', async () => {
+  const { pairLines, changedRange } = await import('./diff.ts');
+  const lines = numberDiff('@@ -1,3 +1,2 @@\n a\n-b\n-c\n+B\n d');
+  const rows = pairLines(lines).map(([l, r]) => [l?.text ?? null, r?.text ?? null]);
+  assert.deepEqual(rows, [['@@ -1,3 +1,2 @@', '@@ -1,3 +1,2 @@'], [' a', ' a'], ['-b', '+B'], ['-c', null], [' d', ' d']]);
+  assert.deepEqual(changedRange('let x = 1;', 'let x = 22;'), [8, 1]);
+  assert.deepEqual(changedRange('aaa', 'aaa'), [3, 0]);
+  assert.deepEqual(changedRange('ab', 'b'), [0, 1]);
+});

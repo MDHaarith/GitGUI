@@ -13,6 +13,7 @@ export interface CommitDetails { oid: string; parents: string[]; author: string;
 export interface Checkpoint { oid: string; timestamp: number; label: string; summary: string }
 export interface SessionFile { path: string; status: string; added: number; deleted: number }
 export interface Session { checkpoint: Checkpoint | null; files: SessionFile[] }
+export interface Stash { index: number; timestamp: number; message: string }
 export interface Answer { text: string; inputTokens: number; outputTokens: number; provider: string }
 export interface AiProvider { kind: 'claude' | 'openai' | 'command'; baseUrl: string; model: string; apiKey: string; command: string }
 
@@ -30,7 +31,7 @@ export const api = {
   commitDiff: (repoId: number, oid: string, parent: string | null, fileId: string | null = null) => invoke<Preview>('get_commit_diff', { repoId, oid, parent, fileId }),
   workingDiff: (repoId: number, fileId: string, staged: boolean) => invoke<Preview>('get_working_diff', { repoId, fileId, staged }),
   stage: (repoId: number, fileIds: string[], unstage: boolean, token: string) => invoke<RepoInfo>('stage_files', { repoId, fileIds, unstage, token }),
-  commit: (repoId: number, message: string, token: string, detachedOk: boolean, bump: string | null) => invoke<RepoInfo>('create_commit', { repoId, message, token, detachedOk, bump }),
+  commit: (repoId: number, message: string, token: string, detachedOk: boolean, bump: string | null, amend = false) => invoke<RepoInfo>('create_commit', { repoId, message, token, detachedOk, bump, amend }),
   createBranch: (repoId: number, name: string, oid: string | null, token: string) => invoke<RepoInfo>('create_branch', { repoId, name, oid, token }),
   switchBranch: (repoId: number, referenceId: string, token: string) => invoke<RepoInfo>('switch_branch', { repoId, referenceId, token }),
   renameBranch: (repoId: number, referenceId: string, name: string, token: string) => invoke<RepoInfo>('rename_branch', { repoId, referenceId, name, token }),
@@ -56,4 +57,16 @@ export const api = {
   setApiKey: (key: string) => invoke<null>('set_api_key', { key }),
   runProject: (repoId: number, output: (line: string) => void) => invoke<string>('run_project', { repoId, onOutput: new Channel<string>(output) }),
   stopProject: () => invoke<null>('stop_project'),
+  stashes: (repoId: number) => invoke<Stash[]>('list_stashes', { repoId }),
+  stash: (repoId: number, message: string, token: string) => invoke<RepoInfo>('save_stash', { repoId, message, token }),
+  applyStash: (repoId: number, stash: Stash, pop: boolean, token: string) => invoke<RepoInfo>('apply_stash', { repoId, index: stash.index, message: stash.message, pop, token }),
+  dropStash: (repoId: number, stash: Stash, token: string) => invoke<RepoInfo>('drop_stash', { repoId, index: stash.index, message: stash.message, token }),
+  clone: (url: string, parent: string, progress: (message: string) => void) => invoke<RepoInfo>('clone_repository', { url, parent, onProgress: new Channel<string>(progress) }),
+  checkoutRemote: (repoId: number, referenceId: string, token: string) => invoke<RepoInfo>('checkout_remote', { repoId, referenceId, token }),
+  stageHunk: (repoId: number, fileId: string, hunk: number, header: string, unstage: boolean, token: string) => invoke<RepoInfo>('stage_hunk', { repoId, fileId, hunk, header, unstage, token }),
+  discard: (repoId: number, fileIds: string[], token: string) => invoke<RepoInfo>('discard_files', { repoId, fileIds, token }),
+  conflict: (repoId: number, fileId: string) => invoke<string>('get_conflict', { repoId, fileId }),
+  saveResolution: (repoId: number, fileId: string, content: string, token: string) => invoke<RepoInfo>('save_resolution', { repoId, fileId, content, token }),
+  latestRelease: () => invoke<[string, string] | null>('latest_release'),
+  openRelease: (url: string) => invoke<null>('open_release', { url }),
 };

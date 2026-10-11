@@ -26,7 +26,9 @@ git diff --cached -U0 --no-color | grep '^+[^+]' | grep -Eq '{SECRETS}' && fail 
 git diff --cached --name-only | grep -Evq '(\.md$|^docs/|(^|/)tests?/|\.test\.|_test\.)' || exit 0
 new=$(version :)
 [ -n "$new" ] || fail "no version found in package.json, Cargo.toml, or VERSION"
-[ "$new" != "$(version HEAD: 2>/dev/null)" ] || fail "code changed but the version is still $new. Bump it (patch: fix, minor: feature, major: breaking change) and stage it"
+# GitGUI sets gitgui.amend when amending: the replaced commit already carries the bump.
+base=HEAD; [ "$(git config --bool gitgui.amend)" = true ] && base=HEAD~1
+[ "$new" != "$(version "$base:" 2>/dev/null)" ] || fail "code changed but the version is still $new. Bump it (patch: fix, minor: feature, major: breaking change) and stage it"
 git show :CHANGELOG.md 2>/dev/null | grep -q "^## $new " || fail "stage a CHANGELOG.md entry headed '## $new — $(date +%F)'"
 tests=$(git config gitgui.testCommand)
 [ -z "$tests" ] && exit 0

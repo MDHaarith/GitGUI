@@ -397,13 +397,7 @@ impl Backend {
         if optional(&repo.root, &["rev-parse", "--verify", "-q", "HEAD~1"])?.is_none() {
             return Err("The first commit can't be undone here.".into());
         }
-        if info.upstream.is_some()
-            && optional(
-                &repo.root,
-                &["merge-base", "--is-ancestor", "HEAD", "@{upstream}"],
-            )?
-            .is_some()
-        {
+        if repo.pushed(&info)? {
             return Err("This commit was already pushed. Undoing it would rewrite shared history; make a new commit that fixes it instead.".into());
         }
         // Version tags made by the post-commit hook would point at a commit that no longer exists.
