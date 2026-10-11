@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.5 — 2026-10-11
+- Keep the Changes button on the same row when several repository tabs are open
+- Repository picker shows a short path (Documents/…/GitGUI); full path on hover
+
 ## 0.15.4 — 2026-10-11
 - Branch action menu opens leftward so the list scrollbar no longer covers it
 

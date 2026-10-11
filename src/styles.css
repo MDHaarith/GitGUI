@@ -76,7 +76,6 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .select-trigger[aria-expanded="true"]:not(:disabled) { background: var(--surface-2); border-color: var(--edge-tertiary); }
 .select-value { display: flex; flex: 1; gap: 8px; min-width: 0; overflow: hidden; white-space: nowrap; }
 .select-name { overflow: hidden; text-overflow: ellipsis; }
-.select-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 13px; font-weight: 400; }
 .select-chevron { color: var(--muted); transition: transform .15s; }
 .select-trigger[aria-expanded="true"] .select-chevron { transform: rotate(180deg); }
 .select-menu { position: fixed; inset: auto; margin: 0; min-width: 240px; max-width: min(420px, calc(100vw - 16px)); padding: 6px; overflow: auto; color: var(--ink); background: var(--surface-3); border: 1px solid var(--edge-strong); border-radius: 12px; box-shadow: inset 0 1px rgb(255 255 255 / .05); font-size: 14px; line-height: 1.5; }
@@ -90,7 +89,7 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .select-group { padding: 10px 10px 4px 36px; color: var(--muted); font-size: 12px; font-weight: 500; }
 .select-divider { height: 1px; margin: 6px -6px; background: var(--edge); }
 .select-open { padding-left: 36px; }
-.history-search { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.history-search { display: flex; align-items: center; gap: 8px; flex: 1 1 200px; max-width: 320px; }
 .search-field { position: relative; width: 300px; min-width: 120px; }
 .search-field > .chrome-icon { position: absolute; left: 10px; top: 8px; color: var(--muted); }
 .history-search input { width: 100%; min-width: 0; height: 32px; padding: 0 12px 0 34px; border-color: var(--edge); font-size: 14px; }

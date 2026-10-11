@@ -1,3 +1,9 @@
+// Home-relative with the middle elided: /home/me/Documents/Projects/GitGUI → Documents/…/GitGUI
+function shortPath(path: string) {
+  const parts = path.replace(/^\/(home|Users)\/[^/]+\/?/, '').split('/').filter(Boolean);
+  return parts.length > 2 ? parts[0] + '/…/' + parts[parts.length - 1] : parts.join('/') || '~';
+}
+
 export function wireDropdown(control: HTMLSelectElement, openRepository?: () => void) {
   const wrapper = document.createElement('div'); wrapper.className = 'select-control';
   const trigger = document.createElement('button'); trigger.type = 'button'; trigger.id = control.id + '-button'; trigger.className = 'select-trigger';
@@ -29,8 +35,8 @@ export function wireDropdown(control: HTMLSelectElement, openRepository?: () => 
     value.replaceChildren(); menu.replaceChildren(); items = []; active = -1;
     const selected = control.selectedOptions[0];
     const name = document.createElement('span'); name.className = 'select-name';
-    name.textContent = openRepository && selected?.value ? selected.value.split('/').filter(Boolean).pop() ?? selected.value : selected?.textContent ?? 'Select'; value.append(name);
-    if (openRepository && selected?.value) { const path = document.createElement('span'); path.className = 'select-path'; path.textContent = selected.value; value.append(path); }
+    if (openRepository && selected?.value) { name.textContent = shortPath(selected.value); name.title = selected.value; } else name.textContent = selected?.textContent ?? 'Select';
+    value.append(name);
     let previousGroup: HTMLElement | null = null;
     function appendItem(item: HTMLElement) {
       item.id = menu.id + '-option-' + items.length; item.classList.add('select-option'); item.setAttribute('role', 'option');
