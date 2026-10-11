@@ -2,7 +2,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { open, confirm, message as nativeMessage } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { api, type AiProvider, type Answer, type Checkpoint, type Session, type SessionFile, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo, type RefInfo, type Stash, type Junk } from './git.ts';
+import { api, type AiProvider, type Answer, type Checkpoint, type Session, type SessionFile, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo, type RefInfo, type Stash, type Junk, type RebaseEdit } from './git.ts';
 import { findCommits, layoutHistory, paintGraph, type Layout } from './graph.ts';
 import { changedRange, numberDiff, pairLines, type DiffLine } from './diff.ts';
 import { isBlock, parseConflicts, resolveConflicts, type Choice, type Segment } from './conflict.ts';
@@ -99,6 +99,11 @@ function updateControls() {
   document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('[data-repo]').forEach(node => { node.disabled = !!unavailable; if (unavailable) node.setAttribute('aria-description', unavailable); else node.removeAttribute('aria-description'); });
   disable('open-repo', busy ? unavailable : ''); disable('init-repo', busy ? unavailable : ''); disable('welcome-open', busy ? unavailable : '');
   disable('details-button', unavailable || (!selected ? 'Select a commit to review its details.' : ''));
+  disable('rebase-button', blocked || (repo?.detached ? 'Switch to a branch before cleaning up commits.' : ''));
+  disable('commit-explain', unavailable || (!details ? 'Open a commit first.' : ''));
+  const githubRemote = repo?.remotes.some(remote => /github\.com[:/]/i.test(remote.url)) ?? false;
+  button('create-pr-button').hidden = !repo?.branch || !repo.upstream || repo.ahead !== 0 || !githubRemote;
+  for (const id of ['commit-revert', 'commit-cherry-pick', 'commit-tag', 'commit-reset']) disable(id, blocked || (!details ? 'Open a commit first.' : repo?.detached ? 'Switch to a branch first.' : ''));
   // Without a remote these buttons open Publish instead.
   const offline = !!repo && !repo.remotes.length;
   disable('fetch', blocked);
@@ -226,6 +231,15 @@ function scopeOptions() {
         action.title = kind === 'remote' ? 'Make a local branch that follows this one, and switch to it' : 'Switch to this branch';
         action.setAttribute('aria-label', action.textContent + ' ' + ref.name); action.addEventListener('click', () => { void switchTo(ref); });
         line.append(action);
+        const merge = document.createElement('button'); merge.type = 'button'; merge.className = 'ref-action'; merge.dataset.repo = ''; merge.textContent = 'Merge'; merge.title = 'Merge this branch into the current branch'; merge.setAttribute('aria-label', 'Merge ' + ref.name); merge.onclick = () => { void mergeRef(ref); }; line.append(merge);
+      } else if (kind === 'tag') {
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'ref-action'; remove.dataset.repo = ''; remove.textContent = 'Delete'; remove.title = 'Delete this local tag'; remove.setAttribute('aria-label', 'Delete tag ' + ref.name); remove.onclick = () => { void removeTag(ref); }; line.append(remove);
+      }
+      if (kind !== 'tag') {
+        const explain = document.createElement('button'); explain.type = 'button'; explain.className = 'ref-action'; explain.dataset.repo = ''; explain.textContent = 'Explain';
+        explain.title = 'Explain this branch with AI'; explain.setAttribute('aria-label', 'Explain branch ' + ref.name);
+        explain.onclick = () => { void explainChanges('branch:' + ref.id, 'Branch ' + ref.name + ' explained'); };
+        line.append(explain);
       }
       section.append(line);
     }
@@ -418,9 +432,35 @@ async function restoreCheckpoint(checkpoint: Checkpoint) {
   dialog('checkpoint-dialog').close();
   await mutate('Restoring checkpoint…', () => api.restoreCheckpoint(repo!.id, checkpoint.oid, repo!.token));
 }
+let rebasePlan: { base: string; commits: RebaseEdit[] } | null = null;
+function renderRebase() {
+  const list = get('rebase-commits');
+  list.replaceChildren(...(rebasePlan?.commits ?? []).map((commit, index) => {
+    const row = document.createElement('div'); row.className = 'row';
+    const label = document.createElement('span'); label.textContent = commit.oid.slice(0, 8) + ' ' + commit.message.split('\n')[0];
+    const action = document.createElement('select');
+    for (const [value, name] of [['pick', 'Keep'], ['reword', 'Edit message'], ['squash', 'Combine with previous'], ['fixup', 'Combine and drop message'], ['drop', 'Delete']]) action.append(option(value, name));
+    action.value = commit.action; if (index === 0) { action.querySelector<HTMLOptionElement>('option[value="squash"]')!.disabled = true; action.querySelector<HTMLOptionElement>('option[value="fixup"]')!.disabled = true; } action.onchange = () => { commit.action = action.value as RebaseEdit['action']; renderRebase(); };
+    row.append(label, action);
+    if (commit.action === 'reword') { const message = document.createElement('textarea'); message.value = commit.message; message.setAttribute('aria-label', 'New commit message'); message.oninput = () => { commit.message = message.value; }; row.append(message); }
+    for (const [name, offset] of [['Move up', -1], ['Move down', 1]] as const) { const move = document.createElement('button'); move.textContent = name; move.disabled = index + offset < 0 || index + offset >= rebasePlan!.commits.length; move.onclick = () => { const to = index + offset; [rebasePlan!.commits[index], rebasePlan!.commits[to]] = [rebasePlan!.commits[to], rebasePlan!.commits[index]]; renderRebase(); }; row.append(move); }
+    return row;
+  }));
+  button('rebase-apply').disabled = !rebasePlan?.commits.length;
+}
+async function openRebase() {
+  if (!repo || busy) return;
+  await run('Loading commits…', async () => { const plan = await api.rebasePlan(repo!.id, repo!.token); rebasePlan = { base: plan.base, commits: plan.commits.map(commit => ({ ...commit, action: 'pick' })) }; renderRebase(); dialog('rebase-dialog').showModal(); notify('Ready'); });
+}
+async function applyRebase() {
+  if (!repo || !rebasePlan || busy) return;
+  if (!await confirm('Rewrite these commits? Their IDs will change. A checkpoint is saved first.', { title: 'Clean up commits', kind: 'warning' })) return;
+  const plan = rebasePlan; dialog('rebase-dialog').close();
+  await mutate('Cleaning up commits…', () => api.cleanCommits(repo!.id, plan.base, plan.commits, repo!.token));
+}
 async function openPath(path: string, load = api.open) {
   const next = await load(path); saveDraft();
-  for (const id of ['branches', 'remote-dialog']) if (dialog(id).open) dialog(id).close();
+  for (const id of ['branches', 'remote-dialog', 'rebase-dialog']) if (dialog(id).open) dialog(id).close();
   get('details').hidden = true;
   details = null; detailRequest++; workingRequest++;
   repo = next; epoch++; scope = null; limit = 200; page = null; selected = null; workingFile = null;
@@ -540,6 +580,7 @@ function updateDetailControls() {
   select('detail-parent').disabled = busy || !details || details.parents.length < 2;
   button('detail-file-prev').disabled = files.disabled || files.selectedIndex <= 0;
   button('detail-file-next').disabled = files.disabled || files.selectedIndex >= files.options.length - 1;
+  button('detail-file-history').disabled = files.disabled || !files.value;
   disable('copy-sha', !details ? 'Open a commit to copy its ID.' : '');
 }
 function moveDetailFile(direction: number) {
@@ -677,7 +718,7 @@ async function saveKey() {
   } catch (error) { report(error); }
 }
 /** Asks the chosen AI; returns null after showing AI settings when no working key is set. */
-async function ask(request: 'explain' | 'message' | 'conflict', scope: string): Promise<Answer | null> {
+async function ask(request: 'explain' | 'message' | 'conflict' | 'pr', scope: string): Promise<Answer | null> {
   try { const answer = await api.ask(repo!.id, request, scope); recordUsage(answer); return answer; }
   catch (error) { if (/No Claude API key|x-api-key|authentication|unauthorized|invalid api key|incorrect api key/i.test(String(error))) { void showKeyForm(); notify('Check your AI settings'); return null; } throw error; }
 }
@@ -697,6 +738,34 @@ async function writeMessage() {
     input('summary').value = summary.trim(); get<HTMLTextAreaElement>('body').value = rest.join('\n').trim(); saveDraft();
     notify('Message drafted. Read it before committing.');
   });
+}
+
+async function openPullRequest() {
+  if (!repo || busy) return;
+  await run('Loading pull request details…', async () => {
+    input('pr-base').value = await api.pullRequestBase(repo!.id);
+    input('pr-title').value = repo!.branch ?? ''; get<HTMLTextAreaElement>('pr-body').value = '';
+    dialog('pull-request-dialog').showModal(); input('pr-title').focus(); notify('Ready');
+  });
+}
+async function writePullRequestWithAi() {
+  if (!repo || busy || !repo.branch) return;
+  await run('The AI is drafting the pull request…', async () => {
+    const ref = page?.refs.find(item => item.isHead && item.kind === 'local');
+    if (!ref) throw new Error('Could not identify the current branch. Refresh and try again.');
+    const answer = await ask('pr', 'branch:' + ref.id); if (!answer) return;
+    const [title, ...body] = answer.text.split('\n'); input('pr-title').value = title.trim();
+    get<HTMLTextAreaElement>('pr-body').value = body.join('\n').trim(); notify('Draft ready. Review it before creating the pull request.');
+  });
+}
+async function createPullRequest() {
+  if (!repo || busy) return;
+  let url = '';
+  await run('Creating pull request…', async () => {
+    url = await api.createPullRequest(repo!.id, input('pr-title').value, get<HTMLTextAreaElement>('pr-body').value, input('pr-base').value);
+    dialog('pull-request-dialog').close();
+  }, true);
+  if (url) { try { await api.openPullRequest(url); } catch (error) { report(error); notify('Pull request created: ' + url); } }
 }
 
 let sessionFiles: (SessionFile & { risk: string | null })[] = [];
@@ -824,6 +893,16 @@ function renderFiles() {
         quick.addEventListener('click', () => { if (repo) void mutate(staged ? 'Unstaging ' + file.path + '…' : 'Staging ' + file.path + '…', () => api.stage(repo!.id, [file.id], staged, repo!.token)); });
         row.append(quick);
       }
+      if (staged !== null && !file.untracked && !file.submodule) {
+        const action = document.createElement('button'); action.type = 'button'; action.className = 'row-action'; action.textContent = 'History';
+        action.setAttribute('aria-label', 'Show history for ' + file.path); action.disabled = busy;
+        action.addEventListener('click', () => { void openFileHistory(file.id, null, file.path); }); row.append(action);
+      }
+      if (staged === false && file.untracked && !file.submodule) {
+        const action = document.createElement('button'); action.type = 'button'; action.className = 'row-action'; action.textContent = 'Ignore';
+        action.setAttribute('aria-label', 'Ignore ' + file.path); action.disabled = busy;
+        action.addEventListener('click', () => openIgnore(file)); row.append(action);
+      }
       if (staged === false && !file.submodule) {
         const discard = document.createElement('button'); discard.type = 'button'; discard.className = 'row-action'; discard.textContent = 'Discard';
         discard.title = 'Throw away these edits (a checkpoint is saved first)'; discard.setAttribute('aria-label', 'Discard changes to ' + file.path);
@@ -852,6 +931,54 @@ get('file-list').addEventListener('keydown', event => {
   }
 });
 get('file-list').addEventListener('focusout', event => { if (!get('file-list').contains(event.relatedTarget as Node)) fileFocus = null; });
+
+let ignoreTarget: FileInfo | null = null;
+function openIgnore(file: FileInfo) {
+  ignoreTarget = file; get('ignore-path').textContent = file.path;
+  button('ignore-folder').hidden = !file.path.includes('/'); dialog('ignore-dialog').showModal();
+}
+async function ignoreTargetAs(folder: boolean) {
+  if (!repo || !ignoreTarget) return;
+  const target = ignoreTarget; dialog('ignore-dialog').close();
+  await mutate('Updating .gitignore…', () => api.ignore(repo!.id, target.id, folder, repo!.token));
+}
+async function openFileHistory(fileId: string, commit: string | null, path: string) {
+  if (!repo || busy) return;
+  const id = repo.id; get('file-history-title').textContent = 'History · ' + path;
+  const listing = get('file-history-list'); const blame = get('file-blame-list');
+  listing.replaceChildren(document.createTextNode('Loading history…')); blame.replaceChildren(); dialog('file-history-dialog').showModal();
+  await run('Loading file history…', async () => {
+    const commits = await api.fileHistory(id, fileId, commit);
+    if (repo?.id !== id || !dialog('file-history-dialog').open) return;
+    listing.replaceChildren();
+    for (const item of commits) {
+      const row = document.createElement('div'); row.className = 'row';
+      const summary = document.createElement('span'); summary.textContent = new Date(item.timestamp * 1000).toLocaleDateString() + ' · ' + item.author + ' · ' + item.subject; row.append(summary);
+      const jump = document.createElement('button'); jump.type = 'button'; jump.textContent = 'Open'; jump.addEventListener('click', () => { dialog('file-history-dialog').close(); if (historyRows.has(item.oid)) choose(item.oid); else void openDetails(item.oid); }); row.append(jump);
+      const showBlame = document.createElement('button'); showBlame.type = 'button'; showBlame.textContent = 'Blame'; showBlame.addEventListener('click', () => { void renderFileBlame(id, fileId, item.oid); }); row.append(showBlame); listing.append(row);
+    }
+    if (!commits.length) listing.textContent = 'No commits found for this file.';
+    await renderFileBlame(id, fileId, commit);
+  });
+}
+async function renderFileBlame(id: number, fileId: string, commit: string | null) {
+  const list = get('file-blame-list'); list.textContent = 'Loading line history…';
+  try {
+    const lines = await api.fileBlame(id, fileId, commit);
+    if (repo?.id !== id || !dialog('file-history-dialog').open) return;
+    list.replaceChildren(); let previous = '';
+    lines.forEach((line, index) => {
+      const row = document.createElement('div'); row.className = line.oid === previous ? 'muted' : 'row'; previous = line.oid;
+      if (index === 0 || lines[index - 1].oid !== line.oid) {
+        const jump = document.createElement('button'); jump.type = 'button'; jump.textContent = short(line.oid) + ' · ' + line.author; jump.title = new Date(line.timestamp * 1000).toLocaleString();
+        jump.addEventListener('click', () => { dialog('file-history-dialog').close(); if (historyRows.has(line.oid)) choose(line.oid); else void openDetails(line.oid); }); row.append(jump);
+      }
+      const text = document.createElement('span'); text.textContent = (index + 1) + ': ' + line.text; row.append(text); list.append(row);
+    });
+    if (lines.length === 5000) { const note = document.createElement('p'); note.textContent = 'Showing the first 5,000 lines.'; list.append(note); }
+    if (!lines.length) list.textContent = 'No line history available.';
+  } catch (error) { list.textContent = error instanceof Error ? error.message : String(error); }
+}
 
 let conflictFile: FileInfo | null = null;
 let conflictSegments: Segment[] = [];
@@ -1004,6 +1131,22 @@ async function cleanupAction(label: string, action: () => Promise<RepoInfo>) {
   await mutate(label, action);
   if (repo && dialog('cleanup-dialog').open) { junk = await api.junk(repo.id).catch(() => []); renderJunk(); }
 }
+async function mergeRef(ref: RefInfo) {
+  if (!repo || busy) return;
+  if (await confirm(`Merge "${ref.name}" into ${repo.branch ?? 'the current branch'}?`, { title: 'Merge branch', kind: 'warning' })) await mutate('Merging ' + ref.name + '…', () => api.mergeRef(repo!.id, ref.id, repo!.token));
+}
+async function removeTag(ref: RefInfo) {
+  if (!repo || busy) return;
+  if (await confirm(`Delete the local tag "${ref.name}"?`, { title: 'Delete tag', kind: 'warning' })) await mutate('Deleting tag…', () => api.deleteTag(repo!.id, ref.id, repo!.token));
+}
+function beginTag() { if (!details || busy) return; input('tag-name').value = ''; input('tag-message').value = ''; dialog('tag-dialog').showModal(); input('tag-name').focus(); }
+function beginReset() { if (details && !busy) dialog('reset-dialog').showModal(); }
+async function applySelectedCommit(revert: boolean) {
+  if (!repo || !details || busy) return;
+  const verb = revert ? 'Revert' : 'Cherry-pick';
+  const mergeNote = details.parents.length > 1 ? ' This is a merge commit; Git will use parent 1 (the branch it was merged into).' : '';
+  if (await confirm(`${verb} ${short(details.oid)}?${mergeNote}`, { title: verb + ' commit', kind: 'warning' })) await mutate(verb + ' commit…', () => api.applyCommit(repo!.id, details!.oid, revert, repo!.token));
+}
 let bumpBeforeAmend: string | null = null;
 function setAmend(on: boolean) {
   input('amend').checked = on; button('commit-button').textContent = on ? 'Amend commit' : 'Commit staged';
@@ -1097,7 +1240,21 @@ button('init-repo').onclick = () => { void initRepository(); };
 button('clone-repo').onclick = openClone;
 button('welcome-clone').onclick = openClone;
 button('stash-button').onclick = () => { void openStashes(); };
+button('commit-revert').onclick = () => { void applySelectedCommit(true); };
+button('commit-cherry-pick').onclick = () => { void applySelectedCommit(false); };
+button('commit-tag').onclick = beginTag;
+button('commit-reset').onclick = beginReset;
+get<HTMLFormElement>('tag-form').onsubmit = event => { event.preventDefault(); if (!repo || !details) return; const name = input('tag-name').value.trim(), message = input('tag-message').value.trim(), oid = details.oid; dialog('tag-dialog').close(); void mutate('Creating tag…', () => api.createTag(repo!.id, name, message, oid, repo!.token)); };
+get<HTMLFormElement>('reset-form').onsubmit = async event => { event.preventDefault(); if (!repo || !details) return; const oid = details.oid, mode = select('reset-mode').value; const effects = mode === 'soft' ? 'keep changes staged' : mode === 'mixed' ? 'keep changes unstaged' : 'discard tracked changes (untracked files stay; a checkpoint is saved first)'; if (!await confirm(`Reset ${repo.branch ?? 'the current branch'} to ${short(oid)} and ${effects}?`, { title: 'Reset branch', kind: 'warning' })) return; dialog('reset-dialog').close(); await mutate('Resetting branch…', () => api.resetCommit(repo!.id, oid, mode, repo!.token)); };
 button('cleanup-button').onclick = () => { void openCleanup(); };
+button('ignore-close').onclick = () => dialog('ignore-dialog').close();
+button('ignore-file').onclick = () => { void ignoreTargetAs(false); };
+button('ignore-folder').onclick = () => { void ignoreTargetAs(true); };
+button('file-history-close').onclick = () => dialog('file-history-dialog').close();
+button('detail-file-history').onclick = () => {
+  const file = details?.files.find(item => item.id === select('detail-file').value);
+  if (file) void openFileHistory(file.id, details!.oid, file.path);
+};
 button('cleanup-delete').onclick = async () => {
   const chosen = chosenJunk(); if (!chosen.length) return;
   const names = chosen.map(entry => entry.path).join(', ');
@@ -1187,10 +1344,16 @@ button('experiment-discard').onclick = () => { void finishExperiment(false); };
 button('operation-continue').onclick = () => { if (repo) void mutate('Continuing ' + repo.operation + '…', () => api.finishOperation(repo!.id, false, repo!.token)); };
 button('operation-abort').onclick = () => { void abortOperation(); };
 button('undo-commit').onclick = () => { void undoCommit(); };
+button('rebase-button').onclick = () => { void openRebase(); };
+button('rebase-apply').onclick = () => { void applyRebase(); };
 button('ai-message').onclick = () => { void writeMessage(); };
 button('ai-settings').onclick = () => { void showKeyForm(); };
 button('ai-settings-open').onclick = () => { void showKeyForm(); };
 button('ai-explain').onclick = () => { void explainChanges('staged', 'Staged changes explained'); };
+button('commit-explain').onclick = () => { if (details) void explainChanges('commit:' + details.oid, 'Commit ' + short(details.oid) + ' explained'); };
+button('create-pr-button').onclick = () => { void openPullRequest(); };
+button('pr-write-ai').onclick = () => { void writePullRequestWithAi(); };
+get<HTMLFormElement>('pull-request-form').onsubmit = event => { event.preventDefault(); void createPullRequest(); };
 get<HTMLFormElement>('key-form').onsubmit = event => { event.preventDefault(); void saveKey(); };
 button('run-button').onclick = () => { if (repo) dialog('run-dialog').showModal(); };
 button('run-start').onclick = () => { void startRun(); };

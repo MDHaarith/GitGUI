@@ -1132,3 +1132,193 @@ fn remote_branches_check_out_clone_and_conflict_blocks() {
         .unwrap();
     assert_eq!(info.operation.as_deref(), Some("merge"));
 }
+
+#[test]
+fn interactive_rebase_reorders_squashes_rewords_drops_and_validates_oids() {
+    use gitgui_lib::git::RebaseEdit;
+    let f = Fixture::new();
+    f.commit("file", "base\n", "base");
+    let a = f.commit("a", "a\n", "first change");
+    let b_oid = f.commit("b", "b\n", "second change");
+    let c = f.commit("c", "c\n", "third change");
+    let d = f.commit("d", "d\n", "remove later");
+    let (mut backend, info) = f.open();
+    let plan = backend.rebase_plan(info.id, &info.token).unwrap();
+    assert_eq!(plan.commits.len(), 4);
+    let invalid = vec![RebaseEdit {
+        oid: a.clone(),
+        action: "pick".into(),
+        message: "first change".into(),
+    }];
+    assert!(backend
+        .clean_commits(info.id, &plan.base, invalid, &info.token)
+        .unwrap_err()
+        .contains("commit list changed"));
+    let edits = vec![
+        RebaseEdit {
+            oid: b_oid,
+            action: "pick".into(),
+            message: "second change".into(),
+        },
+        RebaseEdit {
+            oid: a,
+            action: "squash".into(),
+            message: "first change".into(),
+        },
+        RebaseEdit {
+            oid: c,
+            action: "reword".into(),
+            message: "rewritten third\n\nDetails".into(),
+        },
+        RebaseEdit {
+            oid: d,
+            action: "drop".into(),
+            message: "remove later".into(),
+        },
+    ];
+    let result = backend
+        .clean_commits(info.id, &plan.base, edits, &info.token)
+        .unwrap();
+    assert_eq!(fs::read_to_string(f.root.join("a")).unwrap(), "a\n");
+    assert_eq!(fs::read_to_string(f.root.join("b")).unwrap(), "b\n");
+    assert_eq!(fs::read_to_string(f.root.join("c")).unwrap(), "c\n");
+    assert!(!f.root.join("d").exists());
+    let log = cmd(
+        &f.root,
+        &["log", "--format=%B", &format!("{}..HEAD", plan.base)],
+    );
+    assert!(log.contains("second change"));
+    assert!(log.contains("first change"));
+    assert!(log.contains("rewritten third\n\nDetails"));
+    assert!(fs::read_dir(f.root.join(".git")).unwrap().all(|e| !e
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with("gitgui-reword")));
+    assert!(!log.contains("remove later"));
+    assert!(result.operation.is_none());
+}
+
+#[test]
+fn branch_commit_actions_merge_tag_cherry_pick_revert_and_reset() {
+    let f = Fixture::new();
+    let base = f.commit("one", "base", "base");
+    cmd(&f.root, &["switch", "-q", "-c", "topic"]);
+    let topic_commit = f.commit("two", "topic", "topic change");
+    cmd(&f.root, &["switch", "-q", "main"]);
+    let (mut b, mut info) = f.open();
+    let topic = b
+        .graph(info.id, None, 50, None)
+        .unwrap()
+        .refs
+        .into_iter()
+        .find(|r| r.name == "topic")
+        .unwrap();
+    info = b.merge_ref(info.id, &topic.id, &info.token).unwrap();
+    assert_eq!(info.head.as_deref(), Some(topic_commit.as_str()));
+    assert!(b
+        .create_tag(
+            info.id,
+            "release/test",
+            "annotated",
+            &topic_commit,
+            &info.token
+        )
+        .is_ok());
+    info = b.status(info.id).unwrap();
+    let tag = b
+        .graph(info.id, None, 50, None)
+        .unwrap()
+        .refs
+        .into_iter()
+        .find(|r| r.kind == "tag")
+        .unwrap();
+    info = b.delete_tag(info.id, &tag.id, &info.token).unwrap();
+    info = b
+        .apply_commit(info.id, &topic_commit, true, &info.token)
+        .unwrap();
+    assert_ne!(info.head.as_deref(), Some(topic_commit.as_str()));
+    info = b
+        .apply_commit(info.id, &topic_commit, false, &info.token)
+        .unwrap();
+    assert_eq!(cmd(&f.root, &["show", "HEAD:two"]), "topic");
+    info = b.reset_commit(info.id, &base, "soft", &info.token).unwrap();
+    assert_eq!(info.head.as_deref(), Some(base.as_str()));
+    assert!(info.files.iter().any(|file| file.index != "."));
+}
+
+#[test]
+fn ignore_history_and_blame_files() {
+    let f = Fixture::new();
+    f.commit("tracked.txt", "first line\nsecond line\n", "initial file");
+    f.write("#wild[*]?.txt ", b"untracked\n");
+    let (mut backend, info) = f.open();
+    let ignored_id = info
+        .files
+        .iter()
+        .find(|file| file.untracked)
+        .unwrap()
+        .id
+        .clone();
+    backend
+        .ignore_untracked(info.id, &ignored_id, false, &info.token)
+        .unwrap();
+    let ignore = fs::read_to_string(f.root.join(".gitignore")).unwrap();
+    assert_eq!(ignore, r"/\#wild\[\*]\?.txt\ ".to_owned() + "\n");
+
+    f.write("tracked.txt", b"first line\nchanged line\n");
+    let info = backend.status(info.id).unwrap();
+    let tracked_id = info
+        .files
+        .iter()
+        .find(|file| file.path == "tracked.txt")
+        .unwrap()
+        .id
+        .clone();
+    let history = backend.file_history(info.id, &tracked_id, None).unwrap();
+    assert_eq!(history[0].subject, "initial file");
+    let blame = backend.file_blame(info.id, &tracked_id, None).unwrap();
+    assert_eq!(blame.len(), 2);
+    assert_eq!(blame[0].text, "first line");
+    assert_eq!(blame[0].author, "GitGUI Test");
+}
+
+#[test]
+fn branch_change_text_resolves_ref_id_and_includes_log_and_diff() {
+    let f = Fixture::new();
+    f.commit("base.txt", "base\n", "base");
+    cmd(&f.root, &["switch", "-q", "-c", "topic"]);
+    f.commit("topic.txt", "topic\n", "add topic file");
+    cmd(&f.root, &["switch", "-q", "main"]);
+    let remote = f.temp.path().join("remote.git");
+    cmd(&f.root, &["init", "--bare", remote.to_str().unwrap()]);
+    cmd(
+        &f.root,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    cmd(&f.root, &["push", "-u", "origin", "main"]);
+    cmd(&f.root, &["switch", "-q", "topic"]);
+    cmd(&f.root, &["push", "-u", "origin", "topic"]);
+    cmd(
+        &f.root,
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/main",
+        ],
+    );
+    let (mut backend, info) = f.open();
+    let topic = backend
+        .graph(info.id, None, 50, None)
+        .unwrap()
+        .refs
+        .into_iter()
+        .find(|r| r.is_head)
+        .unwrap();
+    let text = backend
+        .change_text(info.id, &format!("branch:{}", topic.id))
+        .unwrap();
+    assert!(text.contains("add topic file"));
+    assert!(text.contains("+topic"));
+    assert!(backend.change_text(info.id, "branch:untrusted").is_err());
+}

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.0 — 2026-10-11
+- Merge any branch into the current one from the sidebar
+- Revert, cherry-pick, tag, or reset the branch to any commit from its details
+- Delete tags from the sidebar
+- File history and line-by-line blame from Changes or a commit's file
+- Ignore untracked files or their folder from Changes
+- Clean up commits: reorder, combine, reword or delete unpushed commits
+- AI explains a commit or a branch
+- Create pull requests through the GitHub CLI, with an AI-written description
+
 ## 0.13.0 — 2026-10-11
 - Tools › Free up space: delete ignored build output and caches by size, and compact Git data
 

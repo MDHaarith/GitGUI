@@ -531,6 +531,9 @@ impl Backend {
 
     /// Text sent to Claude for an explanation: staged changes, the AI session, a commit, or a conflicted file.
     pub fn change_text(&mut self, id: u64, scope: &str) -> Result<String> {
+        if let Some(ref_id) = scope.strip_prefix("branch:") {
+            return self.branch_text(id, ref_id);
+        }
         let repo = self.repo(id)?;
         let data = match scope {
             "staged" => read(&repo.root, &argv(&["diff", "--cached", "--no-color"]))?,

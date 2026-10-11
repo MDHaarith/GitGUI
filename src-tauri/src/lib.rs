@@ -3,8 +3,8 @@ pub mod git;
 pub mod runner;
 pub mod version;
 use git::{
-    Backend, Checkpoint, CommitDetails, GraphPage, Junk, Preview, Progress, RepoInfo, Session,
-    Stash,
+    Backend, BlameLine, Checkpoint, CommitDetails, FileCommit, GraphPage, Junk, Preview, Progress,
+    RepoInfo, Session, Stash,
 };
 use std::sync::{Arc, Mutex};
 use tauri::{ipc::Channel, State};
@@ -545,6 +545,160 @@ async fn delete_junk(
 async fn compact_repository(repo_id: u64, state: State<'_, AppState>) -> git::Result<RepoInfo> {
     task(state, true, move |b| b.compact(repo_id)).await
 }
+#[tauri::command]
+async fn merge_ref(
+    repo_id: u64,
+    reference_id: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.merge_ref(repo_id, &reference_id, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn apply_commit(
+    repo_id: u64,
+    oid: String,
+    revert: bool,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.apply_commit(repo_id, &oid, revert, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn create_tag(
+    repo_id: u64,
+    name: String,
+    message: String,
+    oid: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.create_tag(repo_id, &name, &message, &oid, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn delete_tag(
+    repo_id: u64,
+    reference_id: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.delete_tag(repo_id, &reference_id, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn reset_commit(
+    repo_id: u64,
+    oid: String,
+    mode: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.reset_commit(repo_id, &oid, &mode, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn ignore_file(
+    repo_id: u64,
+    file_id: String,
+    folder: bool,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.ignore_untracked(repo_id, &file_id, folder, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn file_history(
+    repo_id: u64,
+    file_id: String,
+    commit: Option<String>,
+    state: State<'_, AppState>,
+) -> git::Result<Vec<FileCommit>> {
+    task(state, false, move |b| {
+        b.file_history(repo_id, &file_id, commit.as_deref())
+    })
+    .await
+}
+#[tauri::command]
+async fn file_blame(
+    repo_id: u64,
+    file_id: String,
+    commit: Option<String>,
+    state: State<'_, AppState>,
+) -> git::Result<Vec<BlameLine>> {
+    task(state, false, move |b| {
+        b.file_blame(repo_id, &file_id, commit.as_deref())
+    })
+    .await
+}
+#[tauri::command]
+async fn pull_request_base(repo_id: u64, state: State<'_, AppState>) -> git::Result<String> {
+    task(state, false, move |b| b.pr_base(repo_id)).await
+}
+#[tauri::command]
+async fn create_pull_request(
+    repo_id: u64,
+    title: String,
+    body: String,
+    base: String,
+    state: State<'_, AppState>,
+) -> git::Result<String> {
+    task(state, true, move |b| {
+        b.create_pr(repo_id, &title, &body, &base)
+    })
+    .await
+}
+#[tauri::command]
+fn open_pull_request(url: String) -> git::Result<()> {
+    if !url.starts_with("https://github.com/")
+        || url.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return Err("Only GitHub pull request pages can be opened.".into());
+    }
+    std::process::Command::new("xdg-open")
+        .arg(&url)
+        .env_remove("LD_LIBRARY_PATH")
+        .env_remove("LD_PRELOAD")
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Cannot open the browser: {e}. Visit {url}"))
+}
+#[tauri::command]
+async fn rebase_plan(
+    repo_id: u64,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<git::RebasePlan> {
+    task(state, false, move |b| b.rebase_plan(repo_id, &token)).await
+}
+#[tauri::command]
+async fn clean_commits(
+    repo_id: u64,
+    base: String,
+    commits: Vec<git::RebaseEdit>,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.clean_commits(repo_id, &base, commits, &token)
+    })
+    .await
+}
 const RELEASES: &str = "https://github.com/MDHaarith/GitGUI/releases";
 /// Newest published release as (version, page URL), read from the GitHub API through curl.
 #[tauri::command]
@@ -642,9 +796,22 @@ pub fn run() {
             drop_stash,
             clone_repository,
             checkout_remote,
+            rebase_plan,
+            clean_commits,
             stage_hunk,
+            merge_ref,
+            apply_commit,
+            create_tag,
+            delete_tag,
+            reset_commit,
             discard_files,
+            ignore_file,
+            file_history,
+            file_blame,
             get_conflict,
+            pull_request_base,
+            create_pull_request,
+            open_pull_request,
             save_resolution,
             list_junk,
             delete_junk,

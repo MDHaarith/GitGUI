@@ -9,12 +9,17 @@ export interface RepoInfo { id: number; root: string; branch: string | null; hea
 export interface Preview { text: string; truncated: boolean; binary: boolean }
 export interface CommitFile { id: string; path: string; oldPath: string | null; oldId: string | null; status: string }
 export interface CommitDetails { oid: string; parents: string[]; author: string; email: string; timestamp: number; message: string; parent: string | null; files: CommitFile[]; shallow: boolean }
+export interface RebaseCommit { oid: string; message: string }
+export interface RebaseEdit extends RebaseCommit { action: 'pick' | 'reword' | 'squash' | 'fixup' | 'drop' }
+export interface RebasePlan { base: string; commits: RebaseCommit[] }
 
 export interface Checkpoint { oid: string; timestamp: number; label: string; summary: string }
 export interface SessionFile { path: string; status: string; added: number; deleted: number }
 export interface Session { checkpoint: Checkpoint | null; files: SessionFile[] }
 export interface Stash { index: number; timestamp: number; message: string }
 export interface Junk { id: string; path: string; bytes: number }
+export interface FileCommit { oid: string; timestamp: number; author: string; subject: string }
+export interface BlameLine { oid: string; author: string; timestamp: number; text: string }
 export interface Answer { text: string; inputTokens: number; outputTokens: number; provider: string }
 export interface AiProvider { kind: 'claude' | 'openai' | 'command'; baseUrl: string; model: string; apiKey: string; command: string }
 
@@ -52,7 +57,10 @@ export const api = {
   publish: (repoId: number, main: string, url: string | null, token: string) => invoke<RepoInfo>('publish', { repoId, main, url, token }),
   agentRules: (repoId: number) => invoke<string>('get_agent_rules', { repoId }),
   saveAgentRules: (repoId: number, rules: string) => invoke<null>('save_agent_rules', { repoId, rules }),
-  ask: (repoId: number, request: 'explain' | 'message' | 'conflict', scope: string) => invoke<Answer>('ask_claude', { repoId, request, scope }),
+  ask: (repoId: number, request: 'explain' | 'message' | 'conflict' | 'pr', scope: string) => invoke<Answer>('ask_claude', { repoId, request, scope }),
+  pullRequestBase: (repoId: number) => invoke<string>('pull_request_base', { repoId }),
+  createPullRequest: (repoId: number, title: string, body: string, base: string) => invoke<string>('create_pull_request', { repoId, title, body, base }),
+  openPullRequest: (url: string) => invoke<void>('open_pull_request', { url }),
   aiProvider: () => invoke<AiProvider>('get_ai_provider'),
   saveAiProvider: (provider: AiProvider) => invoke<null>('save_ai_provider', { provider }),
   setApiKey: (key: string) => invoke<null>('set_api_key', { key }),
@@ -64,8 +72,18 @@ export const api = {
   dropStash: (repoId: number, stash: Stash, token: string) => invoke<RepoInfo>('drop_stash', { repoId, index: stash.index, message: stash.message, token }),
   clone: (url: string, parent: string, progress: (message: string) => void) => invoke<RepoInfo>('clone_repository', { url, parent, onProgress: new Channel<string>(progress) }),
   checkoutRemote: (repoId: number, referenceId: string, token: string) => invoke<RepoInfo>('checkout_remote', { repoId, referenceId, token }),
+  rebasePlan: (repoId: number, token: string) => invoke<RebasePlan>('rebase_plan', { repoId, token }),
+  cleanCommits: (repoId: number, base: string, commits: RebaseEdit[], token: string) => invoke<RepoInfo>('clean_commits', { repoId, base, commits, token }),
   stageHunk: (repoId: number, fileId: string, hunk: number, header: string, unstage: boolean, token: string) => invoke<RepoInfo>('stage_hunk', { repoId, fileId, hunk, header, unstage, token }),
+  mergeRef: (repoId: number, referenceId: string, token: string) => invoke<RepoInfo>('merge_ref', { repoId, referenceId, token }),
+  applyCommit: (repoId: number, oid: string, revert: boolean, token: string) => invoke<RepoInfo>('apply_commit', { repoId, oid, revert, token }),
+  createTag: (repoId: number, name: string, message: string, oid: string, token: string) => invoke<RepoInfo>('create_tag', { repoId, name, message, oid, token }),
+  deleteTag: (repoId: number, referenceId: string, token: string) => invoke<RepoInfo>('delete_tag', { repoId, referenceId, token }),
+  resetCommit: (repoId: number, oid: string, mode: string, token: string) => invoke<RepoInfo>('reset_commit', { repoId, oid, mode, token }),
   discard: (repoId: number, fileIds: string[], token: string) => invoke<RepoInfo>('discard_files', { repoId, fileIds, token }),
+  ignore: (repoId: number, fileId: string, folder: boolean, token: string) => invoke<RepoInfo>('ignore_file', { repoId, fileId, folder, token }),
+  fileHistory: (repoId: number, fileId: string, commit: string | null = null) => invoke<FileCommit[]>('file_history', { repoId, fileId, commit }),
+  fileBlame: (repoId: number, fileId: string, commit: string | null = null) => invoke<BlameLine[]>('file_blame', { repoId, fileId, commit }),
   conflict: (repoId: number, fileId: string) => invoke<string>('get_conflict', { repoId, fileId }),
   saveResolution: (repoId: number, fileId: string, content: string, token: string) => invoke<RepoInfo>('save_resolution', { repoId, fileId, content, token }),
   junk: (repoId: number) => invoke<Junk[]>('list_junk', { repoId }),

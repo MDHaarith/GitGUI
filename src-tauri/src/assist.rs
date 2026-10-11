@@ -178,6 +178,7 @@ pub fn prompt(task: &str, changes: &str) -> Result<String> {
         "explain" => "Explain these code changes to someone who builds apps with AI but cannot read code. Use short plain-English sections: What changed, Why (best guess), What could break, and Watch out (only if there are secrets, deleted tests, new dependencies, security or data-loss risks). No code unless essential.",
         "message" => "Write a Git commit message for these changes: an imperative summary line of at most 60 characters, then a blank line and up to 5 short bullet lines. Reply with the message only.",
         "conflict" => "This file has Git conflict markers. In plain English for a non-programmer, explain what each side (between <<<<<<< and =======, and between ======= and >>>>>>>) does and recommend which to keep, or how to combine them.",
+        "pr" => "Write a concise pull request title on the first line, a blank line, then a plain-English description of the branch changes and why they matter. Reply only with the title and body.",
         _ => return Err("Unknown request".into()),
     };
     Ok(format!(
@@ -394,6 +395,7 @@ mod tests {
         assert!(prompt("explain", &"x".repeat(INPUT_LIMIT + 1))
             .unwrap_err()
             .contains("too large"));
+        assert!(prompt("pr", "diff").unwrap().contains("pull request title"));
     }
 
     #[test]

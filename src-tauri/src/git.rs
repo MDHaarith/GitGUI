@@ -17,13 +17,19 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod commits;
 mod daily;
+mod files;
 mod history;
 mod process;
+mod rebase;
+mod share;
 mod vibe;
 pub use daily::{Junk, Stash};
+pub use files::{BlameLine, FileCommit};
 pub use process::redact;
 use process::*;
+pub use rebase::{RebaseCommit, RebaseEdit, RebasePlan};
 pub use vibe::{Session, SessionFile};
 
 pub type Result<T> = std::result::Result<T, String>;

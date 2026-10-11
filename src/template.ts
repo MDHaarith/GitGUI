@@ -38,6 +38,8 @@ export const markup = `
       <div class="menu-list" id="tools-menu" role="menu" hidden>
         <button role="menuitem" id="session-button" data-repo title="See what changed since your last checkpoint or commit, riskiest first, and undo single files">Review AI changes</button>
         <button role="menuitem" id="stash-button" data-repo title="Put unfinished changes aside, then bring them back later">Stashes</button>
+        <button role="menuitem" id="rebase-button" data-repo title="Reorder, combine, edit, or remove unpublished commits">Clean up commits</button>
+        <button role="menuitem" id="create-pr-button" data-repo hidden>Create pull request</button>
         <button role="menuitem" id="cleanup-button" data-repo title="Delete ignored build output and caches, and compact Git's own data">Free up space</button>
         <button role="menuitem" id="experiment-button" data-repo title="Work on a throwaway copy (a branch) that you can keep or discard">Try something risky</button>
         <button role="menuitem" id="run-button" data-repo title="Start your app and watch its output">Run project</button>
@@ -75,8 +77,10 @@ export const markup = `
       <div class="dialog-head"><h2 id="detail-title">Commit details</h2><button id="close-details">Close</button></div>
       <div class="metadata"><span id="detail-author"></span><span id="detail-date"></span><input id="detail-sha" readonly aria-label="Full commit object ID"><button id="copy-sha" class="chip" title="Copy the full commit ID">Copy</button></div>
       <pre class="message" id="detail-message"></pre><div class="parents" id="detail-parents"></div>
-      <div class="detail-controls"><label for="detail-parent">Compare to</label><select id="detail-parent"></select><label for="detail-file">Files</label><select id="detail-file"></select><button id="detail-file-prev" aria-label="Previous changed file" title="Previous file (Alt+Up)">↑</button><button id="detail-file-next" aria-label="Next changed file" title="Next file (Alt+Down)">↓</button><button type="button" class="diff-toggle" aria-pressed="false" title="Show old and new side by side">Side by side</button></div>
+      <button type="button" class="chip" id="commit-explain">Explain this commit with AI</button>
+      <div class="detail-controls"><label for="detail-parent">Compare to</label><select id="detail-parent"></select><label for="detail-file">Files</label><select id="detail-file"></select><button id="detail-file-history" type="button">History</button><button id="detail-file-prev" aria-label="Previous changed file" title="Previous file (Alt+Up)">↑</button><button id="detail-file-next" aria-label="Next changed file" title="Next file (Alt+Down)">↓</button><button type="button" class="diff-toggle" aria-pressed="false" title="Show old and new side by side">Side by side</button></div>
       <pre class="diff" id="detail-diff"></pre>
+      <div class="row detail-actions"><button id="commit-revert" data-repo>Revert</button><button id="commit-cherry-pick" data-repo>Cherry-pick</button><button id="commit-tag" data-repo>Create tag</button><button id="commit-reset" data-repo>Reset branch here</button></div>
     </aside>
     </div>
     <section class="changes" id="changes" aria-label="Working changes" hidden>
@@ -178,6 +182,7 @@ export const markup = `
       <dt>HEAD</dt><dd>The commit you are on right now.</dd>
       <dt>Stash</dt><dd>A shelf for unfinished changes: put them aside, switch tasks, bring them back later.</dd>
       <dt>Amend</dt><dd>Replace the last commit, to fix its message or add a forgotten file. Only before pushing.</dd>
+      <dt>Rebase</dt><dd>Reorder or combine commits that have not been published yet.</dd>
     </dl>
     <h3 class="help-heading">Keyboard</h3>
     <dl class="glossary">
@@ -188,17 +193,42 @@ export const markup = `
     </dl>
     <form method="dialog" class="dialog-foot"><button class="primary" type="submit">Got it</button></form>
   </dialog>
+  <dialog class="branch-dialog" id="tag-dialog" aria-labelledby="tag-title">
+    <div class="dialog-head"><h2 id="tag-title">Create tag</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
+    <form id="tag-form" class="form-grid"><label for="tag-name">Tag name</label><input id="tag-name" maxlength="200" required autocomplete="off"><label for="tag-message">Message (optional)</label><input id="tag-message" maxlength="500" autocomplete="off" placeholder="Leave empty for a lightweight tag"><div class="row"><button class="primary" type="submit" data-repo>Create tag</button></div></form>
+  </dialog>
+  <dialog class="branch-dialog" id="reset-dialog" aria-labelledby="reset-title">
+    <div class="dialog-head"><h2 id="reset-title">Reset current branch</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
+    <form id="reset-form" class="form-grid"><label for="reset-mode">Keep changes as</label><select id="reset-mode"><option value="soft">Soft — keep changes staged</option><option value="mixed">Mixed — keep changes unstaged</option><option value="hard">Hard — discard changes (untracked files stay)</option></select><p class="muted">Hard reset saves a checkpoint before changing tracked files.</p><div class="row"><button class="primary" type="submit" data-repo>Reset branch</button></div></form>
+  </dialog>
   <dialog class="branch-dialog" id="stash-dialog" aria-labelledby="stash-title">
     <div class="dialog-head"><h2 id="stash-title">Stashes</h2><form method="dialog"><button type="submit">Close</button></form></div>
     <form id="stash-form" class="form-grid"><label for="stash-name">Put all current changes aside</label><input id="stash-name" maxlength="200" autocomplete="off" placeholder="What were you working on?"><div class="row"><button class="chip" type="submit" data-repo>Stash changes</button></div></form>
     <p class="muted">A stash is a shelf for unfinished work: your files go back to the last commit, and you can bring the changes back any time, on any branch.</p>
     <ol class="checkpoint-list" id="stash-list"></ol>
   </dialog>
+  <dialog class="branch-dialog wide-dialog" id="file-history-dialog" aria-labelledby="file-history-title">
+    <div class="dialog-head"><h2 id="file-history-title">File history</h2><button id="file-history-close">Close</button></div>
+    <div id="file-history-list" class="history-list"></div><h3>Who changed each line</h3><div id="file-blame-list" class="blame-list"></div>
+  </dialog>
+  <dialog class="branch-dialog" id="ignore-dialog" aria-labelledby="ignore-title">
+    <div class="dialog-head"><h2 id="ignore-title">Ignore this file?</h2><button id="ignore-close">Cancel</button></div>
+    <p id="ignore-path"></p><div class="row"><button id="ignore-file">Ignore file</button><button id="ignore-folder">Ignore top folder</button></div>
+  </dialog>
   <dialog class="branch-dialog" id="cleanup-dialog" aria-labelledby="cleanup-title">
     <div class="dialog-head"><h2 id="cleanup-title">Free up space</h2><form method="dialog"><button type="submit">Close</button></form></div>
     <p class="muted">Files your .gitignore hides, largest first: build output, dependencies and caches can be deleted and are rebuilt when needed. Keep settings and secrets such as .env. Folders holding another repository are not shown.</p>
     <ol class="checkpoint-list" id="cleanup-list"></ol>
     <div class="row"><button class="chip" id="cleanup-delete" data-repo>Delete selected</button><span class="spacer"></span><button id="cleanup-compact" data-repo title="Pack Git's history data tighter (git gc). Nothing you can see changes.">Compact Git data</button></div>
+  </dialog>
+  <dialog class="branch-dialog wide-dialog" id="pull-request-dialog" aria-labelledby="pull-request-title">
+    <div class="dialog-head"><h2 id="pull-request-title">Create pull request</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
+    <form id="pull-request-form" class="form-grid">
+      <label for="pr-title">Title</label><input id="pr-title" required maxlength="256" autocomplete="off">
+      <label for="pr-body">Description</label><textarea id="pr-body" rows="10" maxlength="64000"></textarea>
+      <label for="pr-base">Base branch</label><input id="pr-base" required autocomplete="off">
+      <div class="row"><button type="button" id="pr-write-ai">Write with AI</button><span class="spacer"></span><button class="primary" type="submit">Create pull request</button></div>
+    </form>
   </dialog>
   <dialog class="branch-dialog" id="clone-dialog" aria-labelledby="clone-title">
     <div class="dialog-head"><h2 id="clone-title">Clone a repository</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
@@ -208,6 +238,12 @@ export const markup = `
       <p class="muted" id="clone-note">GitGUI creates a new folder named after the project.</p>
       <div class="row"><button class="primary" type="submit">Clone</button></div>
     </form>
+  </dialog>
+  <dialog class="branch-dialog wide-dialog" id="rebase-dialog" aria-labelledby="rebase-title">
+    <div class="dialog-head"><h2 id="rebase-title">Clean up commits</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
+    <p class="muted">Choose what to do with each unpublished commit, then reorder them with the buttons.</p>
+    <div id="rebase-commits" class="checkpoint-list"></div>
+    <div class="dialog-foot"><button class="primary" id="rebase-apply" type="button">Apply</button></div>
   </dialog>
   <dialog class="branch-dialog wide-dialog" id="conflict-dialog" aria-labelledby="conflict-title">
     <div class="dialog-head"><h2 id="conflict-title">Resolve conflict</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
