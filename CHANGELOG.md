@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.15.8 — 2026-10-11
+- Stop tracking a stray refs/ checkpoint folder created by tooling
+
 ## 0.15.7 — 2026-10-11
 - Repository tabs get their own line (shown with two or more open) and wrap instead of scrolling
 
