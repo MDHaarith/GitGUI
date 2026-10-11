@@ -1,5 +1,5 @@
 //! Everyday actions: stash, clone, checking out remote branches, hunk staging, discarding
-//! changes, and resolving conflicts block by block.
+//! changes, resolving conflicts block by block, and freeing disk space.
 use super::*;
 
 #[derive(Clone, Debug, Serialize)]
@@ -7,6 +7,52 @@ pub struct Stash {
     pub index: u32,
     pub timestamp: i64,
     pub message: String,
+}
+
+/// An ignored file or folder (build output, dependencies, caches) that can be deleted to free space.
+#[derive(Clone, Debug, Serialize)]
+pub struct Junk {
+    pub id: String,
+    pub path: String,
+    pub bytes: u64,
+}
+
+/// Bytes under `path`, or None when it holds a Git repository; symlinks are not followed.
+fn disk_size(path: &Path) -> Option<u64> {
+    let meta = fs::symlink_metadata(path).ok()?;
+    if !meta.is_dir() {
+        return Some(meta.len());
+    }
+    let mut total = 0;
+    for entry in fs::read_dir(path).ok()?.flatten() {
+        // A nested repository has its own history; deleting it could lose commits.
+        if entry.file_name() == ".git" {
+            return None;
+        }
+        total += disk_size(&entry.path())?;
+    }
+    Some(total)
+}
+
+/// Ignored top-level entries and their sizes; Git reports wholly ignored folders as one entry.
+fn ignored(root: &Path) -> Result<Vec<(Vec<u8>, u64)>> {
+    let output = read(
+        root,
+        &argv(&[
+            "ls-files",
+            "-z",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+        ]),
+    )?;
+    Ok(output
+        .split(|b| *b == 0)
+        .map(|p| p.strip_suffix(b"/").unwrap_or(p))
+        .filter(|p| relative_path(p).is_ok())
+        .filter_map(|p| Some((p.to_vec(), disk_size(&root.join(from_bytes(p)))?)))
+        .collect())
 }
 
 fn stash_ref(index: u32) -> String {
@@ -317,6 +363,57 @@ impl Backend {
                 }
             }
         }
+        repo.info()
+    }
+
+    /// Ignored files and folders with their sizes, largest first.
+    pub fn junk(&mut self, id: u64) -> Result<Vec<Junk>> {
+        let repo = self.repo(id)?;
+        let mut list: Vec<Junk> = ignored(&repo.root)?
+            .into_iter()
+            .map(|(p, bytes)| Junk {
+                id: hex(&p),
+                path: display(&p),
+                bytes,
+            })
+            .collect();
+        list.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+        Ok(list)
+    }
+    /// Permanently deletes chosen ignored entries; only paths Git still reports as ignored are touched.
+    pub fn delete_junk(&mut self, id: u64, ids: &[String], token: &str) -> Result<RepoInfo> {
+        let repo = self.repo(id)?;
+        repo.checked(token)?;
+        let chosen: Vec<Vec<u8>> = ignored(&repo.root)?
+            .into_iter()
+            .map(|(p, _)| p)
+            .filter(|p| ids.contains(&hex(p)))
+            .collect();
+        if chosen.is_empty() {
+            return Err("Select at least one item".into());
+        }
+        if chosen.len() != ids.len() {
+            return Err("The list of ignored files changed. Reopen it and try again.".into());
+        }
+        for path in chosen {
+            let full = repo.root.join(from_bytes(&path));
+            let removed = if fs::symlink_metadata(&full).is_ok_and(|m| m.is_dir()) {
+                fs::remove_dir_all(&full)
+            } else {
+                fs::remove_file(&full)
+            };
+            if let Err(e) = removed {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    return Err(format!("Cannot remove {}: {e}", display(&path)));
+                }
+            }
+        }
+        repo.info()
+    }
+    /// Packs Git's own data tighter; unreachable objects younger than two weeks are kept.
+    pub fn compact(&mut self, id: u64) -> Result<RepoInfo> {
+        let repo = self.repo(id)?;
+        repo.write(&argv(&["gc", "--quiet"]), None, None, None)?;
         repo.info()
     }
 

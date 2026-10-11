@@ -3,7 +3,8 @@ pub mod git;
 pub mod runner;
 pub mod version;
 use git::{
-    Backend, Checkpoint, CommitDetails, GraphPage, Preview, Progress, RepoInfo, Session, Stash,
+    Backend, Checkpoint, CommitDetails, GraphPage, Junk, Preview, Progress, RepoInfo, Session,
+    Stash,
 };
 use std::sync::{Arc, Mutex};
 use tauri::{ipc::Channel, State};
@@ -527,6 +528,23 @@ async fn save_resolution(
     })
     .await
 }
+#[tauri::command]
+async fn list_junk(repo_id: u64, state: State<'_, AppState>) -> git::Result<Vec<Junk>> {
+    task(state, false, move |b| b.junk(repo_id)).await
+}
+#[tauri::command]
+async fn delete_junk(
+    repo_id: u64,
+    ids: Vec<String>,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| b.delete_junk(repo_id, &ids, &token)).await
+}
+#[tauri::command]
+async fn compact_repository(repo_id: u64, state: State<'_, AppState>) -> git::Result<RepoInfo> {
+    task(state, true, move |b| b.compact(repo_id)).await
+}
 const RELEASES: &str = "https://github.com/MDHaarith/GitGUI/releases";
 /// Newest published release as (version, page URL), read from the GitHub API through curl.
 #[tauri::command]
@@ -628,6 +646,9 @@ pub fn run() {
             discard_files,
             get_conflict,
             save_resolution,
+            list_junk,
+            delete_junk,
+            compact_repository,
             latest_release,
             open_release
         ])

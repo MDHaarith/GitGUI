@@ -21,7 +21,7 @@ mod daily;
 mod history;
 mod process;
 mod vibe;
-pub use daily::Stash;
+pub use daily::{Junk, Stash};
 pub use process::redact;
 use process::*;
 pub use vibe::{Session, SessionFile};

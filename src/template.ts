@@ -38,6 +38,7 @@ export const markup = `
       <div class="menu-list" id="tools-menu" role="menu" hidden>
         <button role="menuitem" id="session-button" data-repo title="See what changed since your last checkpoint or commit, riskiest first, and undo single files">Review AI changes</button>
         <button role="menuitem" id="stash-button" data-repo title="Put unfinished changes aside, then bring them back later">Stashes</button>
+        <button role="menuitem" id="cleanup-button" data-repo title="Delete ignored build output and caches, and compact Git's own data">Free up space</button>
         <button role="menuitem" id="experiment-button" data-repo title="Work on a throwaway copy (a branch) that you can keep or discard">Try something risky</button>
         <button role="menuitem" id="run-button" data-repo title="Start your app and watch its output">Run project</button>
         <button role="menuitem" id="rules-button" data-repo title="Rules every AI agent reads before changing this project (AGENTS.md)">AI rules</button>
@@ -192,6 +193,12 @@ export const markup = `
     <form id="stash-form" class="form-grid"><label for="stash-name">Put all current changes aside</label><input id="stash-name" maxlength="200" autocomplete="off" placeholder="What were you working on?"><div class="row"><button class="chip" type="submit" data-repo>Stash changes</button></div></form>
     <p class="muted">A stash is a shelf for unfinished work: your files go back to the last commit, and you can bring the changes back any time, on any branch.</p>
     <ol class="checkpoint-list" id="stash-list"></ol>
+  </dialog>
+  <dialog class="branch-dialog" id="cleanup-dialog" aria-labelledby="cleanup-title">
+    <div class="dialog-head"><h2 id="cleanup-title">Free up space</h2><form method="dialog"><button type="submit">Close</button></form></div>
+    <p class="muted">Files your .gitignore hides, largest first: build output, dependencies and caches can be deleted and are rebuilt when needed. Keep settings and secrets such as .env. Folders holding another repository are not shown.</p>
+    <ol class="checkpoint-list" id="cleanup-list"></ol>
+    <div class="row"><button class="chip" id="cleanup-delete" data-repo>Delete selected</button><span class="spacer"></span><button id="cleanup-compact" data-repo title="Pack Git's history data tighter (git gc). Nothing you can see changes.">Compact Git data</button></div>
   </dialog>
   <dialog class="branch-dialog" id="clone-dialog" aria-labelledby="clone-title">
     <div class="dialog-head"><h2 id="clone-title">Clone a repository</h2><form method="dialog"><button type="submit">Cancel</button></form></div>

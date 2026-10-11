@@ -1012,6 +1012,35 @@ fn stash_amend_hunks_and_discard() {
 }
 
 #[test]
+fn ignored_files_are_listed_deleted_and_nested_repos_kept() {
+    let f = Fixture::new();
+    f.commit(".gitignore", "target/\n.env\nvendor/\n", "ignore");
+    fs::create_dir_all(f.root.join("target/debug")).unwrap();
+    f.write("target/debug/app", b"0123456789");
+    f.write(".env", b"KEY=1\n");
+    fs::create_dir_all(f.root.join("vendor/inner")).unwrap();
+    cmd(&f.root.join("vendor/inner"), &["init", "-q"]);
+    let (mut b, info) = f.open();
+    let junk = b.junk(info.id).unwrap();
+    assert_eq!(
+        junk.iter()
+            .map(|j| (j.path.as_str(), j.bytes))
+            .collect::<Vec<_>>(),
+        [("target", 10), (".env", 6)]
+    );
+    assert!(b
+        .delete_junk(info.id, &["2e2e".into()], &info.token)
+        .unwrap_err()
+        .contains("Select"));
+    let info = b
+        .delete_junk(info.id, &[junk[0].id.clone()], &info.token)
+        .unwrap();
+    assert!(!f.root.join("target").exists());
+    assert!(f.root.join(".env").exists() && f.root.join("vendor/inner/.git").exists());
+    b.compact(info.id).unwrap();
+}
+
+#[test]
 fn amend_keeps_version_tags_on_the_new_commit() {
     let f = Fixture::new();
     let (mut b, info) = f.open();

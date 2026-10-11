@@ -14,6 +14,7 @@ export interface Checkpoint { oid: string; timestamp: number; label: string; sum
 export interface SessionFile { path: string; status: string; added: number; deleted: number }
 export interface Session { checkpoint: Checkpoint | null; files: SessionFile[] }
 export interface Stash { index: number; timestamp: number; message: string }
+export interface Junk { id: string; path: string; bytes: number }
 export interface Answer { text: string; inputTokens: number; outputTokens: number; provider: string }
 export interface AiProvider { kind: 'claude' | 'openai' | 'command'; baseUrl: string; model: string; apiKey: string; command: string }
 
@@ -67,6 +68,9 @@ export const api = {
   discard: (repoId: number, fileIds: string[], token: string) => invoke<RepoInfo>('discard_files', { repoId, fileIds, token }),
   conflict: (repoId: number, fileId: string) => invoke<string>('get_conflict', { repoId, fileId }),
   saveResolution: (repoId: number, fileId: string, content: string, token: string) => invoke<RepoInfo>('save_resolution', { repoId, fileId, content, token }),
+  junk: (repoId: number) => invoke<Junk[]>('list_junk', { repoId }),
+  deleteJunk: (repoId: number, ids: string[], token: string) => invoke<RepoInfo>('delete_junk', { repoId, ids, token }),
+  compact: (repoId: number) => invoke<RepoInfo>('compact_repository', { repoId }),
   latestRelease: () => invoke<[string, string] | null>('latest_release'),
   openRelease: (url: string) => invoke<null>('open_release', { url }),
 };

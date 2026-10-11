@@ -2,7 +2,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { open, confirm, message as nativeMessage } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { api, type AiProvider, type Answer, type Checkpoint, type Session, type SessionFile, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo, type RefInfo, type Stash } from './git.ts';
+import { api, type AiProvider, type Answer, type Checkpoint, type Session, type SessionFile, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo, type RefInfo, type Stash, type Junk } from './git.ts';
 import { findCommits, layoutHistory, paintGraph, type Layout } from './graph.ts';
 import { changedRange, numberDiff, pairLines, type DiffLine } from './diff.ts';
 import { isBlock, parseConflicts, resolveConflicts, type Choice, type Segment } from './conflict.ts';
@@ -976,6 +976,34 @@ async function stashAction(label: string, action: () => Promise<RepoInfo>) {
   await mutate(label, action);
   if (repo && dialog('stash-dialog').open) renderStashes(await api.stashes(repo.id).catch(() => []));
 }
+const size = (bytes: number) => bytes < 1e6 ? Math.ceil(bytes / 1e3) + ' KB' : bytes < 1e9 ? (bytes / 1e6).toFixed(1) + ' MB' : (bytes / 1e9).toFixed(1) + ' GB';
+let junk: Junk[] = [];
+function renderJunk() {
+  const items = junk.map(entry => {
+    const item = document.createElement('li');
+    const label = document.createElement('label'); label.className = 'row';
+    const box = document.createElement('input'); box.type = 'checkbox'; box.value = entry.id; box.onchange = updateJunkTotal;
+    const title = document.createElement('strong'); title.textContent = entry.path;
+    const meta = document.createElement('span'); meta.className = 'muted'; meta.textContent = size(entry.bytes);
+    label.append(box, title); item.append(label, meta); return item;
+  });
+  if (!items.length) { const empty = document.createElement('li'); empty.className = 'muted'; empty.textContent = 'Nothing ignored to clean up.'; items.push(empty); }
+  get('cleanup-list').replaceChildren(...items); updateJunkTotal();
+}
+function chosenJunk() { return junk.filter(entry => get('cleanup-list').querySelector<HTMLInputElement>(`input[value="${entry.id}"]`)?.checked); }
+function updateJunkTotal() {
+  const chosen = chosenJunk();
+  button('cleanup-delete').textContent = chosen.length ? `Delete selected (${size(chosen.reduce((sum, entry) => sum + entry.bytes, 0))})` : 'Delete selected';
+}
+async function openCleanup() {
+  if (!repo || busy) return;
+  await run('Measuring ignored files…', async () => { junk = await api.junk(repo!.id); renderJunk(); dialog('cleanup-dialog').showModal(); notify('Ready'); });
+}
+async function cleanupAction(label: string, action: () => Promise<RepoInfo>) {
+  if (!repo || busy) return;
+  await mutate(label, action);
+  if (repo && dialog('cleanup-dialog').open) { junk = await api.junk(repo.id).catch(() => []); renderJunk(); }
+}
 let bumpBeforeAmend: string | null = null;
 function setAmend(on: boolean) {
   input('amend').checked = on; button('commit-button').textContent = on ? 'Amend commit' : 'Commit staged';
@@ -1069,6 +1097,13 @@ button('init-repo').onclick = () => { void initRepository(); };
 button('clone-repo').onclick = openClone;
 button('welcome-clone').onclick = openClone;
 button('stash-button').onclick = () => { void openStashes(); };
+button('cleanup-button').onclick = () => { void openCleanup(); };
+button('cleanup-delete').onclick = async () => {
+  const chosen = chosenJunk(); if (!chosen.length) return;
+  const names = chosen.map(entry => entry.path).join(', ');
+  if (await confirm(`Permanently delete ${names}? Git cannot bring these back; build tools recreate what they need.`, { title: 'Free up space', kind: 'warning' })) void cleanupAction('Deleting ignored files…', () => api.deleteJunk(repo!.id, chosen.map(entry => entry.id), repo!.token));
+};
+button('cleanup-compact').onclick = () => { void cleanupAction('Compacting Git data…', () => api.compact(repo!.id)); };
 button('stash-changes').onclick = () => { void openStashes().then(() => input('stash-name').focus()); };
 get<HTMLFormElement>('stash-form').onsubmit = event => { event.preventDefault(); const name = input('stash-name').value; input('stash-name').value = ''; void stashAction('Stashing changes…', () => api.stash(repo!.id, name, repo!.token)); };
 button('update-button').onclick = () => { void run('Checking for updates…', () => checkUpdates(true)); };

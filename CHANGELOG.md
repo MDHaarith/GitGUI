@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.13.0 — 2026-10-11
+- Tools › Free up space: delete ignored build output and caches by size, and compact Git data
+
 ## 0.12.2 — 2026-10-11
 - Smaller Rust build cache: desktop-only crate types, no debug info for dependencies
 

@@ -12,7 +12,8 @@ Open, init, or clone a repository, browse branches and merge parents, inspect
 commit or working-tree diffs (unified or side by side, with changed words marked),
 stage/unstage whole files or single hunks, discard edits, stash work, create or
 amend commits, create, switch, rename, and delete branches, check out remote
-branches, resolve conflicts block by block, and fetch/pull/push. Remotes are
+branches, resolve conflicts block by block, free space taken by ignored build
+output and caches, and fetch/pull/push. Remotes are
 fetched quietly every five minutes, and GitGUI checks GitHub once a day for a
 newer published release.
 
