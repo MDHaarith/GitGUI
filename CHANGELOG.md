@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.15.6 — 2026-10-11
+- Repository tabs now use the remaining toolbar space and scroll, so the Changes button never wraps however many tabs are open
+
 ## 0.15.5 — 2026-10-11
 - Keep the Changes button on the same row when several repository tabs are open
 - Repository picker shows a short path (Documents/…/GitGUI); full path on hover
