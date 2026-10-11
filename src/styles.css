@@ -91,7 +91,8 @@ code, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .select-group { padding: 10px 10px 4px 36px; color: var(--muted); font-size: 12px; font-weight: 500; }
 .select-divider { height: 1px; margin: 6px -6px; background: var(--edge); }
 .select-open { padding-left: 36px; }
-.history-search { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* Zero basis lets search shrink before the row wraps; the large grow keeps the spacer from taking its width. */
+.history-search { display: flex; align-items: center; gap: 8px; flex: 1000 1 0; min-width: 210px; }
 .search-field { position: relative; width: 300px; min-width: 120px; }
 .search-field > .chrome-icon { position: absolute; left: 10px; top: 8px; color: var(--muted); }
 .history-search input { width: 100%; min-width: 0; height: 32px; padding: 0 12px 0 34px; border-color: var(--edge); font-size: 14px; }
@@ -254,6 +255,7 @@ dialog::backdrop { background: rgb(0 0 0 / .8); backdrop-filter: blur(6px); }
   .brand { padding-right: 8px; }
 }
 @media (max-width: 980px) {
+  .history-search { min-width: 80px; }
   .search-field { width: 0; min-width: 0; overflow: hidden; }
   .search-field:focus-within { width: 150px; overflow: visible; }
   .toolbar .select-control { width: 200px; }

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.15.9 — 2026-10-11
+- Keep Changes on the scope bar row when the Experiment bar is shown
+
 ## 0.15.8 — 2026-10-11
 - Stop tracking a stray refs/ checkpoint folder created by tooling
 
