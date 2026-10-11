@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.15.3 — 2026-10-11
+- Branch and tag actions now live in a "⋯" menu (or right-click), so names keep their full width
+
 ## 0.15.2 — 2026-10-11
 - Keep branch names readable in narrow sidebars and contain the Explain tooltip.
 

@@ -241,24 +241,15 @@ function scopeOptions() {
       if (ref.isHead) { const head = document.createElement('span'); head.className = 'ref-head'; head.textContent = 'HEAD'; item.append(head); }
       item.addEventListener('click', () => { void changeScope(ref.id); });
       const line = document.createElement('div'); line.className = 'ref-row'; line.append(item);
-      const actions = document.createElement('span'); actions.className = 'ref-actions';
-      if (kind !== 'tag' && !ref.isHead) {
-        const action = document.createElement('button'); action.type = 'button'; action.className = 'ref-action'; action.dataset.repo = '';
-        action.textContent = kind === 'remote' ? 'Check out' : 'Switch';
-        action.title = kind === 'remote' ? 'Make a local branch that follows this one, and switch to it' : 'Switch to this branch';
-        action.setAttribute('aria-label', action.textContent + ' ' + ref.name); action.addEventListener('click', () => { void switchTo(ref); });
-        actions.append(action);
-        const merge = document.createElement('button'); merge.type = 'button'; merge.className = 'ref-action'; merge.dataset.repo = ''; merge.textContent = 'Merge'; merge.title = 'Merge this branch into the current branch'; merge.setAttribute('aria-label', 'Merge ' + ref.name); merge.onclick = () => { void mergeRef(ref); }; actions.append(merge);
-      } else if (kind === 'tag') {
-        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'ref-action'; remove.dataset.repo = ''; remove.textContent = 'Delete'; remove.title = 'Delete this local tag'; remove.setAttribute('aria-label', 'Delete tag ' + ref.name); remove.onclick = () => { void removeTag(ref); }; actions.append(remove);
-      }
-      if (kind !== 'tag') {
-        const explain = document.createElement('button'); explain.type = 'button'; explain.className = 'ref-action'; explain.dataset.repo = ''; explain.textContent = 'Explain';
-        explain.dataset.tip = 'Explain this branch with AI'; explain.setAttribute('aria-label', 'Explain branch ' + ref.name);
-        explain.onclick = () => { void explainChanges('branch:' + ref.id, 'Branch ' + ref.name + ' explained'); };
-        actions.append(explain);
-      }
-      if (actions.childElementCount) line.append(actions);
+      const actions: [string, () => void][] = [];
+      if (kind !== 'tag' && !ref.isHead) actions.push([kind === 'remote' ? 'Check out' : 'Switch to this branch', () => { void switchTo(ref); }], ['Merge into current branch', () => { void mergeRef(ref); }]);
+      if (kind !== 'tag') actions.push(['Explain with AI', () => { void explainChanges('branch:' + ref.id, 'Branch ' + ref.name + ' explained'); }]);
+      else actions.push(['Delete tag', () => { void removeTag(ref); }]);
+      const more = document.createElement('button'); more.type = 'button'; more.className = 'ref-more'; more.dataset.repo = ''; more.textContent = '⋯';
+      more.title = 'More actions'; more.setAttribute('aria-label', 'Actions for ' + ref.name); more.setAttribute('aria-haspopup', 'menu'); more.setAttribute('aria-expanded', 'false');
+      more.onclick = event => { event.stopPropagation(); openRefMenu(more, actions); };
+      item.addEventListener('contextmenu', event => { event.preventDefault(); event.stopPropagation(); if (!more.disabled) openRefMenu(more, actions); });
+      line.append(more);
       section.append(line);
     }
     control.append(group); list.append(section);
@@ -1355,6 +1346,29 @@ get<HTMLFormElement>('remote-form').onsubmit = event => { event.preventDefault()
 button('publish').onclick = openPublish;
 get<HTMLFormElement>('publish-form').onsubmit = event => { event.preventDefault(); void publish(); };
 get<HTMLFormElement>('publish-form').onchange = () => { const useUrl = get<HTMLFormElement>('publish-form').querySelector<HTMLInputElement>('input[name="publish-mode"]:checked')?.value === 'url'; input('publish-url').disabled = !useUrl; if (useUrl) input('publish-url').focus(); };
+const refMenu = document.createElement('div'); refMenu.className = 'menu-list ref-menu'; refMenu.setAttribute('role', 'menu'); refMenu.hidden = true; document.body.append(refMenu);
+let refMenuOwner: HTMLButtonElement | null = null;
+function closeRefMenu() { refMenu.hidden = true; refMenuOwner?.setAttribute('aria-expanded', 'false'); refMenuOwner = null; }
+function openRefMenu(owner: HTMLButtonElement, actions: [string, () => void][]) {
+  const reopen = refMenuOwner !== owner; closeRefMenu(); if (!reopen) return;
+  refMenu.replaceChildren(...actions.map(([label, run]) => {
+    const entry = document.createElement('button'); entry.type = 'button'; entry.setAttribute('role', 'menuitem'); entry.textContent = label;
+    entry.onclick = () => { closeRefMenu(); owner.focus(); run(); }; return entry;
+  }));
+  refMenu.hidden = false; refMenuOwner = owner; owner.setAttribute('aria-expanded', 'true');
+  const box = owner.getBoundingClientRect(), width = refMenu.offsetWidth, height = refMenu.offsetHeight;
+  // Fixed to the viewport so the scrolling sidebar never clips it; flips up near the bottom edge.
+  refMenu.style.left = Math.max(8, Math.min(box.left, innerWidth - width - 8)) + 'px';
+  refMenu.style.top = (box.bottom + 4 + height > innerHeight - 8 ? Math.max(8, box.top - 4 - height) : box.bottom + 4) + 'px';
+  refMenu.querySelector('button')?.focus();
+}
+refMenu.addEventListener('keydown', event => {
+  const items = [...refMenu.querySelectorAll('button')]; const index = items.indexOf(document.activeElement as HTMLButtonElement);
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus(); }
+  if (event.key === 'Escape' || event.key === 'Tab') { event.preventDefault(); const owner = refMenuOwner; closeRefMenu(); owner?.focus(); }
+});
+document.addEventListener('click', event => { if (!refMenu.hidden && !refMenu.contains(event.target as Node)) closeRefMenu(); });
+get('ref-list').addEventListener('scroll', closeRefMenu); window.addEventListener('resize', closeRefMenu);
 function closeTools() { get('tools-menu').hidden = true; button('tools-button').setAttribute('aria-expanded', 'false'); }
 button('tools-button').onclick = event => {
   event.stopPropagation(); const menu = get('tools-menu'); menu.hidden = !menu.hidden;
