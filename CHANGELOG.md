@@ -1,6 +1,9 @@
 # Changelog
 
-## 0.15.10 — 2026-10-12 - Fetch prunes remote branches that were deleted on the remote - Check for updates uses gh when signed in and reports why a check failed instead of claiming no update 
+## 0.15.10 — 2026-10-12
+- Fetch prunes remote branches that were deleted on the remote
+- Check for updates uses gh when signed in and reports why a check failed instead of claiming no update
+
 ## 0.15.9 — 2026-10-11
 - Keep Changes on the scope bar row when the Experiment bar is shown
 
