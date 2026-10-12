@@ -1068,7 +1068,7 @@ dependencies = [
 
 [[package]]
 name = "gitgui"
-version = "0.15.9"
+version = "0.15.10"
 dependencies = [
  "glib",
  "libc",

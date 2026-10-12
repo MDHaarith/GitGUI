@@ -559,7 +559,7 @@ impl Backend {
         let args = vec![
             os("fetch"),
             os("--progress"),
-            os("--no-prune"),
+            os("--prune"),
             os("--"),
             from_bytes(&decode_hex(&remote.id)?),
         ];

@@ -712,24 +712,46 @@ const RELEASES: &str = "https://github.com/MDHaarith/GitGUI/releases";
 #[tauri::command]
 async fn latest_release() -> git::Result<Option<(String, String)>> {
     tauri::async_runtime::spawn_blocking(|| {
-        let output = std::process::Command::new("curl")
-            .args([
-                "-sSf",
-                "--max-time",
-                "15",
-                "-H",
-                "accept: application/vnd.github+json",
-            ])
-            .arg("https://api.github.com/repos/MDHaarith/GitGUI/releases/latest")
+        // gh is authenticated, so it works for a private repository and avoids the anonymous rate limit.
+        let gh = std::process::Command::new("gh")
+            .args(["api", "repos/MDHaarith/GitGUI/releases/latest"])
             .env_remove("LD_LIBRARY_PATH")
             .env_remove("LD_PRELOAD")
-            .output()
-            .map_err(|_| "Install curl to check for updates.".to_owned())?;
-        if !output.status.success() {
-            return Ok(None);
+            .output();
+        let output = match gh {
+            Ok(o) if o.status.success() => o,
+            _ => std::process::Command::new("curl")
+                .args([
+                    "-sS",
+                    "--max-time",
+                    "15",
+                    "-H",
+                    "accept: application/vnd.github+json",
+                    "-w",
+                    "\n%{http_code}",
+                ])
+                .arg("https://api.github.com/repos/MDHaarith/GitGUI/releases/latest")
+                .env_remove("LD_LIBRARY_PATH")
+                .env_remove("LD_PRELOAD")
+                .output()
+                .map_err(|_| "Install curl or gh to check for updates.".to_owned())?,
+        };
+        let text = String::from_utf8_lossy(&output.stdout);
+        // curl appends the HTTP status as the last line; gh output has none and only reaches here on success.
+        let (body, status) = match text.rsplit_once('\n') {
+            Some((b, s)) if s.len() == 3 && s.bytes().all(|c| c.is_ascii_digit()) => (b, s),
+            _ => (text.as_ref(), if output.status.success() { "200" } else { "000" }),
+        };
+        if status != "200" {
+            return Err(match status {
+                "403" | "429" => "GitHub is rate-limiting update checks. Try again later, or sign in with `gh auth login`.".into(),
+                "404" => "No published GitGUI release was found. Drafts are not visible, and a private repository needs `gh auth login`.".into(),
+                _ => format!("Update check failed: {}", String::from_utf8_lossy(&output.stderr).trim()),
+            });
         }
+        let output = body.as_bytes();
         let release: serde_json::Value =
-            serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+            serde_json::from_slice(output).map_err(|e| e.to_string())?;
         let tag = release["tag_name"].as_str().unwrap_or_default();
         let url = release["html_url"].as_str().unwrap_or(RELEASES);
         Ok((!tag.is_empty() && url.starts_with(RELEASES))
