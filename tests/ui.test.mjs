@@ -25,9 +25,14 @@ const page = {
   refs: [ref('main', 'local', oid(3), true), ref('feature', 'local', oid(2)), ref('origin/main', 'remote', oid(2)), ref('origin/feature', 'remote', oid(2))],
 };
 const diff = 'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1,3 +1,3 @@\n # Demo\n-Old words here\n+New words here\n end\n';
+const symbol = (kind, file, name) => ({ kind, name, qualified_name: kind === 'File' ? `/tmp/demo/${file}` : `/tmp/demo/${file}::${name}`, file_path: `/tmp/demo/${file}`, line_start: 3, language: 'typescript' });
+const codeMap = JSON.stringify({
+  nodes: [symbol('File', 'src/app.ts', 'app'), symbol('Function', 'src/app.ts', 'start'), symbol('File', 'src/git.ts', 'git'), symbol('Function', 'src/git.ts', 'openRepo'), symbol('Function', 'src/git.ts', 'readStatus')],
+  edges: [{ kind: 'CALLS', source: '/tmp/demo/src/app.ts::start', target: '/tmp/demo/src/git.ts::openRepo' }],
+});
 const responses = {
   startup_path: null, 'plugin:app|version': '0.12.0', latest_release: null, open_repository: repo, get_status: repo,
-  get_graph: page, get_health: [], get_working_diff: { text: diff, truncated: false, binary: false }, list_stashes: [], list_checkpoints: [],
+  get_graph: page, get_health: [], get_working_diff: { text: diff, truncated: false, binary: false }, list_stashes: [], list_checkpoints: [], code_map: codeMap,
 };
 function mockTauri(responses) {
   let next = 1;
@@ -95,6 +100,18 @@ test('working diffs offer hunk staging, word highlights, and a side-by-side view
   mkdirSync('test-results', { recursive: true });
   await tab.screenshot({ path: 'test-results/ui-changes.png' });
   await tab.locator('.working-preview .diff-toggle').click();
+});
+
+test('the code map draws files, links them, and searches symbols', async () => {
+  await tab.click('#tools-button'); await tab.click('#codemap-button');
+  await tab.locator('#codemap-dialog[open] #codemap-graph circle').first().waitFor();
+  assert.equal(await tab.locator('#codemap-graph circle').count(), 2);
+  assert.equal(await tab.locator('#codemap-graph line').count(), 1);
+  await tab.fill('#codemap-search', 'open');
+  assert.equal(await tab.locator('#codemap-results li').count(), 1);
+  assert.equal(await tab.locator('#codemap-graph g.hit').count(), 1);
+  await tab.screenshot({ path: 'test-results/ui-codemap.png' });
+  await tab.evaluate(() => document.getElementById('codemap-dialog').close());
 });
 
 test('every dialog fits the window without sideways scrolling', async () => {

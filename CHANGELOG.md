@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.0 — 2026-10-13
+- Initialising a repository (or enabling versioning) builds a code-review-graph index in the background so AI agents can search the code
+- Tools › Code map shows the index as a file dependency graph with symbol search; Rebuild index re-parses every file
+
 ## 0.15.10 — 2026-10-12
 - Fetch prunes remote branches that were deleted on the remote
 - Check for updates uses gh when signed in and reports why a check failed instead of claiming no update

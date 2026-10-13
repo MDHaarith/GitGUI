@@ -1,4 +1,5 @@
 pub mod assist;
+pub mod codemap;
 pub mod git;
 pub mod runner;
 pub mod version;
@@ -370,6 +371,13 @@ async fn publish(
 #[tauri::command]
 async fn get_agent_rules(repo_id: u64, state: State<'_, AppState>) -> git::Result<String> {
     task(state, false, move |b| b.agent_rules(repo_id)).await
+}
+#[tauri::command]
+async fn code_map(repo_id: u64, rebuild: bool, state: State<'_, AppState>) -> git::Result<String> {
+    let root = task(state, false, move |b| b.root(repo_id)).await?;
+    tauri::async_runtime::spawn_blocking(move || codemap::load(&root, rebuild))
+        .await
+        .map_err(|e| format!("Code map failed: {e}"))?
 }
 #[tauri::command]
 async fn save_agent_rules(
@@ -814,6 +822,7 @@ pub fn run() {
             undo_commit,
             publish,
             get_agent_rules,
+            code_map,
             save_agent_rules,
             ask_claude,
             set_api_key,

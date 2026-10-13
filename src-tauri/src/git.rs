@@ -254,6 +254,7 @@ impl Backend {
     pub fn enable_versioning(&mut self, id: u64) -> Result<RepoInfo> {
         let repo = self.repo(id)?;
         crate::version::enable(&repo.root, &repo.metadata("hooks")?)?;
+        crate::codemap::index(&repo.root);
         if let Some(tests) = crate::version::test_command(&repo.root) {
             if optional(&repo.root, &["config", "gitgui.testCommand"])?.is_none() {
                 repo.write(

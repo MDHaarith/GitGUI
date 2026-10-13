@@ -56,6 +56,7 @@ export const api = {
   finishOperation: (repoId: number, abort: boolean, token: string) => invoke<RepoInfo>('finish_operation', { repoId, abort, token }),
   undoCommit: (repoId: number, token: string) => invoke<RepoInfo>('undo_commit', { repoId, token }),
   publish: (repoId: number, main: string, url: string | null, token: string) => invoke<RepoInfo>('publish', { repoId, main, url, token }),
+  codeMap: (repoId: number, rebuild: boolean) => invoke<string>('code_map', { repoId, rebuild }),
   agentRules: (repoId: number) => invoke<string>('get_agent_rules', { repoId }),
   saveAgentRules: (repoId: number, rules: string) => invoke<null>('save_agent_rules', { repoId, rules }),
   ask: (repoId: number, request: 'explain' | 'message' | 'conflict' | 'pr', scope: string) => invoke<Answer>('ask_claude', { repoId, request, scope }),

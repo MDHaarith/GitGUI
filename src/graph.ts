@@ -56,7 +56,7 @@ export function layoutHistory(commits: Commit[], refs: RefInfo[] = []): Layout {
 }
 
 const NS = 'http://www.w3.org/2000/svg';
-function element(tag: string, attributes: Record<string, string | number>) {
+export function element(tag: string, attributes: Record<string, string | number>) {
   const node = document.createElementNS(NS, tag);
   for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
   return node;

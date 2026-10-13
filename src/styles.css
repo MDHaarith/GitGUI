@@ -307,6 +307,17 @@ dialog::backdrop { background: rgb(0 0 0 / .8); backdrop-filter: blur(6px); }
 
 .wide-dialog { max-width: 860px; width: min(860px, 92vw); }
 .dialog-pre { max-height: 40dvh; overflow: auto; margin-top: 8px; }
+#codemap-search { width: 100%; margin-bottom: 8px; }
+.codemap { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 8px; }
+#codemap-graph { width: 100%; max-height: 60dvh; background: var(--surface-1); border: 1px solid var(--edge); border-radius: 8px; }
+#codemap-graph line { stroke: var(--edge-strong); }
+#codemap-graph g { cursor: pointer; }
+#codemap-graph circle { stroke: var(--canvas); }
+#codemap-graph text { fill: var(--muted); font-size: 11px; pointer-events: none; }
+#codemap-graph.filtered g:not(.hit) { opacity: .2; }
+#codemap-graph g.hit circle, #codemap-graph g:focus-visible circle { stroke: var(--ink); stroke-width: 2; }
+#codemap-results { max-height: 60dvh; }
+#codemap-results li { display: block; }
 .history-list { max-height: 30dvh; overflow: auto; display: grid; gap: 4px; }
 .blame-list { max-height: 45dvh; overflow: auto; font: 12px/1.5 'Geist Mono', ui-monospace, monospace; white-space: pre; }
 .blame-list > div { display: flex; gap: 8px; }

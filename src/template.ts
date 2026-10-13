@@ -45,6 +45,7 @@ export const markup = `
         <button role="menuitem" id="experiment-button" data-repo title="Work on a throwaway copy (a branch) that you can keep or discard">Try something risky</button>
         <button role="menuitem" id="run-button" data-repo title="Start your app and watch its output">Run project</button>
         <button role="menuitem" id="rules-button" data-repo title="Rules every AI agent reads before changing this project (AGENTS.md)">AI rules</button>
+        <button role="menuitem" id="codemap-button" data-repo title="Index the code with code-review-graph, search it, and see how files depend on each other">Code map</button>
         <button role="menuitem" id="ai-settings-menu" title="Choose Claude, DeepSeek, OpenAI, Ollama, Codex, opencode, or any other AI">AI settings</button>
         <button role="menuitem" id="update-button" title="See whether a newer GitGUI is available">Check for updates</button>
         <button role="menuitem" id="help-button" title="How GitGUI works and what the Git words mean">Help</button>
@@ -142,6 +143,12 @@ export const markup = `
     <div class="dialog-head"><h2 id="run-title">Run project</h2><span class="spacer"></span><button class="primary" id="run-start">Start</button><button id="run-stop" disabled>Stop</button><form method="dialog"><button type="submit">Close</button></form></div>
     <p class="muted">GitGUI guesses the start command (npm run dev, cargo run, python main.py…). Change it with <code>git config gitgui.runCommand "&lt;command&gt;"</code>.</p>
     <p class="run-hint" id="run-hint" role="alert" hidden></p><pre class="diff dialog-pre" id="run-output" aria-live="off"></pre>
+  </dialog>
+  <dialog class="branch-dialog wide-dialog" id="codemap-dialog" aria-labelledby="codemap-title">
+    <div class="dialog-head"><h2 id="codemap-title">Code map</h2><span class="spacer"></span><button id="codemap-rebuild" title="Re-parse every file instead of only the changed ones">Rebuild index</button><form method="dialog"><button type="submit">Close</button></form></div>
+    <p class="muted" id="codemap-summary"></p>
+    <input id="codemap-search" type="search" aria-label="Search functions, classes and types" placeholder="Search functions, classes and types" autocomplete="off">
+    <div class="codemap"><svg id="codemap-graph" viewBox="0 0 600 600" role="group" aria-label="Files, sized by symbol count, linked by calls and imports"></svg><ol class="checkpoint-list" id="codemap-results" aria-live="polite"></ol></div>
   </dialog>
   <dialog class="branch-dialog wide-dialog" id="rules-dialog" aria-labelledby="rules-title">
     <div class="dialog-head"><h2 id="rules-title">AI rules (AGENTS.md)</h2><form method="dialog"><button type="submit">Close</button></form></div>

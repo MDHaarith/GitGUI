@@ -3,7 +3,8 @@ import { getVersion } from '@tauri-apps/api/app';
 import { open, confirm, message as nativeMessage } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api, type AiProvider, type Answer, type Checkpoint, type Session, type SessionFile, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo, type RefInfo, type Stash, type Junk, type RebaseEdit } from './git.ts';
-import { findCommits, layoutHistory, paintGraph, type Layout } from './graph.ts';
+import { element, findCommits, laneColors, layoutHistory, paintGraph, type Layout } from './graph.ts';
+import { fileMap, searchSymbols, type MapFile, type MapLink } from './codemap.ts';
 import { changedRange, numberDiff, pairLines, type DiffLine } from './diff.ts';
 import { isBlock, parseConflicts, resolveConflicts, type Choice, type Segment } from './conflict.ts';
 import { isNewer } from './update.ts';
@@ -835,6 +836,43 @@ async function openRules() {
   if (!repo || busy) return;
   await run('Loading AI rules…', async () => { get<HTMLTextAreaElement>('rules-text').value = await api.agentRules(repo!.id); dialog('rules-dialog').showModal(); notify('Ready'); });
 }
+let codeMap: { files: MapFile[]; links: MapLink[] } | null = null, codeFile: number | null = null;
+async function openCodeMap(rebuild = false) {
+  if (!repo || busy) return;
+  await run(rebuild ? 'Rebuilding the code index…' : 'Updating the code index…', async () => {
+    codeMap = fileMap(JSON.parse(await api.codeMap(repo!.id, rebuild)), repo!.root); codeFile = null;
+    paintCodeMap(); if (!dialog('codemap-dialog').open) dialog('codemap-dialog').showModal(); notify('Ready');
+  });
+}
+function paintCodeMap() {
+  if (!codeMap) return;
+  const { files, links } = codeMap, svg = get('codemap-graph'), query = input('codemap-search').value.trim();
+  const hits = codeFile !== null ? files[codeFile].symbols.map(symbol => ({ file: codeFile!, symbol })) : searchSymbols(files, query);
+  const lit = new Set(hits.map(hit => hit.file));
+  if (codeFile === null && query) files.forEach((file, i) => { if (file.path.toLowerCase().includes(query.toLowerCase())) lit.add(i); });
+  const languages = [...new Set(files.map(file => file.language))];
+  svg.classList.toggle('filtered', codeFile !== null || !!query);
+  svg.replaceChildren(
+    ...links.map(link => element('line', { x1: files[link.from].x, y1: files[link.from].y, x2: files[link.to].x, y2: files[link.to].y, 'stroke-width': Math.min(1 + Math.log2(link.weight), 5) })),
+    ...files.map((file, i) => {
+      const node = element('g', { tabindex: 0, role: 'button', 'aria-label': `${file.path}, ${file.symbols.length} symbols`, class: lit.has(i) ? 'hit' : '' });
+      const title = element('title', {}); title.textContent = `${file.path} (${file.language}, ${file.symbols.length} symbols)`;
+      const label = element('text', file.x > 480 ? { x: file.x - 8, y: file.y + 3, 'text-anchor': 'end' } : { x: file.x + 6, y: file.y + 3 }); label.textContent = file.path.split('/').pop()!;
+      node.append(title, element('circle', { cx: file.x, cy: file.y, r: 3 + Math.sqrt(file.symbols.length), fill: laneColors[languages.indexOf(file.language) % laneColors.length] }), label);
+      const pick = () => { codeFile = codeFile === i ? null : i; paintCodeMap(); svg.querySelectorAll<SVGGElement>('g')[i].focus(); };
+      node.addEventListener('click', pick);
+      node.addEventListener('keydown', event => { const key = (event as KeyboardEvent).key; if (key === 'Enter' || key === ' ') { event.preventDefault(); pick(); } });
+      return node;
+    }));
+  get('codemap-summary').textContent = codeFile !== null
+    ? `${files[codeFile].path}: ${hits.length} symbols. Select it again to show every file.`
+    : `${files.length} files, ${files.reduce((sum, file) => sum + file.symbols.length, 0)} symbols, ${links.length} file dependencies.${query ? ` ${hits.length} matching symbols.` : ' Search, or select a file to list its symbols.'}`;
+  get('codemap-results').replaceChildren(...hits.map(({ file, symbol }) => {
+    const item = document.createElement('li'), name = document.createElement('strong'), where = document.createElement('span');
+    name.textContent = symbol.name + ' '; where.className = 'muted mono'; where.textContent = `${symbol.kind.toLowerCase()} · ${files[file].path}:${symbol.line_start ?? ''}`;
+    item.append(name, where); return item;
+  }));
+}
 async function saveRules() {
   if (!repo || busy) return;
   await run('Saving AI rules…', async () => { await api.saveAgentRules(repo!.id, get<HTMLTextAreaElement>('rules-text').value); dialog('rules-dialog').close(); await refresh(); notify('Rules saved to AGENTS.md'); }, true);
@@ -1410,6 +1448,9 @@ button('run-button').onclick = () => { if (repo) dialog('run-dialog').showModal(
 button('run-start').onclick = () => { void startRun(); };
 button('run-stop').onclick = () => { void api.stopProject().catch(report); };
 button('rules-button').onclick = () => { void openRules(); };
+button('codemap-button').onclick = () => { void openCodeMap(); };
+button('codemap-rebuild').onclick = () => { void openCodeMap(true); };
+input('codemap-search').oninput = () => { codeFile = null; paintCodeMap(); };
 button('rules-starter').onclick = () => { const text = get<HTMLTextAreaElement>('rules-text'); if (!text.value.includes(STARTER_RULES.split('\n')[0])) text.value = (text.value.trim() ? text.value.trimEnd() + '\n\n' : '') + STARTER_RULES; };
 get<HTMLFormElement>('rules-form').onsubmit = event => { event.preventDefault(); void saveRules(); };
 button('help-button').onclick = () => dialog('help-dialog').showModal();
