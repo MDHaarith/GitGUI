@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.16.1 — 2026-10-13
+- Release builds run on Linux only, so tagged versions produce a release instead of a failed run
+
 ## 0.16.0 — 2026-10-13
 - Initialising a repository (or enabling versioning) builds a code-review-graph index in the background so AI agents can search the code
 - Tools › Code map shows the index as a file dependency graph with symbol search; Rebuild index re-parses every file

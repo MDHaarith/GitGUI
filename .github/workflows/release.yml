@@ -1,4 +1,5 @@
-# Builds installers for every version tag the post-commit hook creates and attaches them to a draft GitHub release.
+# Builds the Linux installers for every pushed version tag and attaches them to a draft GitHub release.
+# Linux only: the app uses Unix APIs and bundles AppImage and rpm.
 name: Release
 on:
   push:
@@ -10,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-latest, windows-latest]
+        os: [ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
