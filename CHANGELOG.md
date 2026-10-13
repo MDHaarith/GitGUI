@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.16.2 — 2026-10-13
+- Code map works in the AppImage: tools started by GitGUI no longer inherit the AppImage Python and Perl paths
+
 ## 0.16.1 — 2026-10-13
 - Release builds run on Linux only, so tagged versions produce a release instead of a failed run
 
