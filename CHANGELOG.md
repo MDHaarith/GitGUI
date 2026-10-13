@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.3 — 2026-10-13
+
+- Require code-review-graph for code searches
+
 ## 0.16.2 — 2026-10-13
 - Code map works in the AppImage: tools started by GitGUI no longer inherit the AppImage Python and Perl paths
 

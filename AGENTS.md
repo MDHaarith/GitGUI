@@ -1,3 +1,6 @@
+#Command-line Discipline
+1. Always search code using code-review-graph
+
 # Versioning (enforced by `.githooks/pre-commit`)
 
 Every commit that changes app code (`src/`, `src-tauri/src/`; tests excluded) must bump the version:
