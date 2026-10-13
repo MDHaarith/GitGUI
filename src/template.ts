@@ -144,10 +144,11 @@ export const markup = `
     <p class="muted">GitGUI guesses the start command (npm run dev, cargo run, python main.py…). Change it with <code>git config gitgui.runCommand "&lt;command&gt;"</code>.</p>
     <p class="run-hint" id="run-hint" role="alert" hidden></p><pre class="diff dialog-pre" id="run-output" aria-live="off"></pre>
   </dialog>
-  <dialog class="branch-dialog wide-dialog" id="codemap-dialog" aria-labelledby="codemap-title">
+  <dialog class="branch-dialog wide-dialog codemap-dialog" id="codemap-dialog" aria-labelledby="codemap-title">
     <div class="dialog-head"><h2 id="codemap-title">Code map</h2><span class="spacer"></span><button id="codemap-rebuild" title="Re-parse every file instead of only the changed ones">Rebuild index</button><form method="dialog"><button type="submit">Close</button></form></div>
     <p class="muted" id="codemap-summary"></p>
     <input id="codemap-search" type="search" aria-label="Search functions, classes and types" placeholder="Search functions, classes and types" autocomplete="off">
+    <div class="codemap-tools"><span class="codemap-legend" id="codemap-legend" aria-label="Colours by language"></span><span class="spacer"></span><label><input type="checkbox" id="codemap-tests" checked> Show tests</label><button id="codemap-reset" title="Zoom back out (or double-click the map)">Reset view</button></div>
     <div class="codemap"><svg id="codemap-graph" viewBox="0 0 600 600" role="group" aria-label="Files, sized by symbol count, linked by calls and imports"></svg><ol class="checkpoint-list" id="codemap-results" aria-live="polite"></ol></div>
   </dialog>
   <dialog class="branch-dialog wide-dialog" id="rules-dialog" aria-labelledby="rules-title">

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.0 — 2026-10-13
+- Code map clusters files by folder, fills the panel, and no longer collapses around the busiest file
+- Hovering or selecting a file in the code map highlights the files it is linked to and dims the rest
+- Code map zooms with the scroll wheel, pans by dragging, and resets on double-click or Reset view
+- Code map shows a language legend, a Show tests toggle, and the most connected files; search results open their file
+
 ## 0.16.3 — 2026-10-13
 
 - Require code-review-graph for code searches

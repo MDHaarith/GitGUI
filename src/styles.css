@@ -308,16 +308,31 @@ dialog::backdrop { background: rgb(0 0 0 / .8); backdrop-filter: blur(6px); }
 .wide-dialog { max-width: 860px; width: min(860px, 92vw); }
 .dialog-pre { max-height: 40dvh; overflow: auto; margin-top: 8px; }
 #codemap-search { width: 100%; margin-bottom: 8px; }
-.codemap { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 8px; }
-#codemap-graph { width: 100%; max-height: 60dvh; background: var(--surface-1); border: 1px solid var(--edge); border-radius: 8px; }
-#codemap-graph line { stroke: var(--edge-strong); }
-#codemap-graph g { cursor: pointer; }
-#codemap-graph circle { stroke: var(--canvas); }
-#codemap-graph text { fill: var(--muted); font-size: 11px; pointer-events: none; }
-#codemap-graph.filtered g:not(.hit) { opacity: .2; }
-#codemap-graph g.hit circle, #codemap-graph g:focus-visible circle { stroke: var(--ink); stroke-width: 2; }
-#codemap-results { max-height: 60dvh; }
-#codemap-results li { display: block; }
+.codemap-dialog.wide-dialog { width: min(1180px, 94vw); max-width: none; }
+.codemap-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+.codemap-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.codemap-legend .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+.codemap { display: grid; grid-template-columns: minmax(0, 5fr) minmax(220px, 2fr); gap: 8px; }
+#codemap-graph { width: 100%; height: min(62dvh, 680px); background: var(--surface-1); border: 1px solid var(--edge); border-radius: 8px; cursor: grab; touch-action: none; user-select: none; }
+#codemap-graph:active { cursor: grabbing; }
+#codemap-graph path { fill: none; stroke: var(--edge-strong); stroke-opacity: .5; vector-effect: non-scaling-stroke; transition: stroke-opacity .15s; }
+#codemap-graph.dim path { stroke-opacity: .08; }
+#codemap-graph path.on, #codemap-graph.dim path.on { stroke: var(--accent-hover); stroke-opacity: .9; }
+#codemap-graph .nodes g { cursor: pointer; outline: none; transition: opacity .15s; }
+#codemap-graph circle { stroke: var(--surface-1); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+#codemap-graph g.test circle { fill-opacity: .55; }
+#codemap-graph text { fill: var(--ink-muted); font-size: calc(11px * var(--k, 1)); pointer-events: none; paint-order: stroke; stroke: var(--surface-1); stroke-width: calc(3px * var(--k, 1)); stroke-linejoin: round; opacity: 0; }
+#codemap-graph text.major, #codemap-graph.zoomed text, #codemap-graph g.near text { opacity: 1; }
+#codemap-graph.dim .nodes g:not(.on, .near) { opacity: .15; }
+#codemap-graph.dim .nodes g:not(.on, .near) text { opacity: 0; }
+#codemap-graph g.on text { opacity: 1; fill: var(--ink); font-weight: 600; }
+#codemap-graph g.on circle, #codemap-graph g:focus-visible circle { stroke: var(--ink); stroke-width: 2.5; }
+#codemap-results { max-height: min(62dvh, 680px); }
+#codemap-results li { display: block; padding: 0; }
+#codemap-results .mono { display: block; font-size: 11px; margin-top: 2px; }
+#codemap-results button { all: unset; display: block; box-sizing: border-box; width: 100%; padding: 6px 8px; border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
+#codemap-results button:hover { background: var(--surface-3); }
+#codemap-results button:focus-visible { outline: 2px solid var(--accent-focus); }
 .history-list { max-height: 30dvh; overflow: auto; display: grid; gap: 4px; }
 .blame-list { max-height: 45dvh; overflow: auto; font: 12px/1.5 'Geist Mono', ui-monospace, monospace; white-space: pre; }
 .blame-list > div { display: flex; gap: 8px; }

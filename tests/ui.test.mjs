@@ -106,10 +106,10 @@ test('the code map draws files, links them, and searches symbols', async () => {
   await tab.click('#tools-button'); await tab.click('#codemap-button');
   await tab.locator('#codemap-dialog[open] #codemap-graph circle').first().waitFor();
   assert.equal(await tab.locator('#codemap-graph circle').count(), 2);
-  assert.equal(await tab.locator('#codemap-graph line').count(), 1);
+  assert.equal(await tab.locator('#codemap-graph .links path').count(), 1);
   await tab.fill('#codemap-search', 'open');
   assert.equal(await tab.locator('#codemap-results li').count(), 1);
-  assert.equal(await tab.locator('#codemap-graph g.hit').count(), 1);
+  assert.equal(await tab.locator('#codemap-graph .nodes g.on').count(), 1);
   await tab.screenshot({ path: 'test-results/ui-codemap.png' });
   await tab.evaluate(() => document.getElementById('codemap-dialog').close());
 });

@@ -13,10 +13,19 @@ test('fileMap groups symbols by file, keeps only resolved cross-file dependencie
     { kind: 'CALLS', source: '/r/a.rs::open', target: 'unresolved' },
     { kind: 'CONTAINS', source: '/r/a.rs', target: '/r/a.rs::open' },
   ];
-  const { files, links } = fileMap({ nodes, edges }, '/r', 600);
+  const { files, links } = fileMap({ nodes, edges }, '/r');
   assert.deepEqual(files.map(f => [f.path, f.symbols.length]), [['a.rs', 2], ['b.rs', 1], ['c.rs', 0]]);
   assert.deepEqual(links, [{ from: 0, to: 1, weight: 2 }]);
-  for (const f of files) assert.ok(f.x >= 40 && f.x <= 560 && f.y >= 40 && f.y <= 560, `${f.path} at ${f.x},${f.y}`);
+  for (const f of files) assert.ok(f.x >= f.r && f.x <= 600 - f.r && f.y >= f.r && f.y <= 600 - f.r, `${f.path} at ${f.x},${f.y}`);
   assert.deepEqual(searchSymbols(files, 'RE').map(h => h.symbol.name), ['read']);
   assert.deepEqual(searchSymbols(files, '  '), []);
+});
+
+test('fileMap can leave out test files and their links', () => {
+  const nodes = [node('File', '/r/src/a.ts', '/r/src/a.ts'), node('Function', '/r/src/a.ts', 'run'), node('File', '/r/src/a.test.ts', '/r/src/a.test.ts'), node('Function', '/r/src/a.test.ts', 'check'), node('File', '/r/tests/ui.mjs', '/r/tests/ui.mjs')];
+  const edges = [{ kind: 'CALLS', source: '/r/src/a.test.ts::check', target: '/r/src/a.ts::run' }];
+  assert.deepEqual(fileMap({ nodes, edges }, '/r').files.map(f => [f.path, f.test]), [['src/a.ts', false], ['src/a.test.ts', true], ['tests/ui.mjs', true]]);
+  const trimmed = fileMap({ nodes, edges }, '/r', { tests: false });
+  assert.deepEqual(trimmed.files.map(f => f.path), ['src/a.ts']);
+  assert.deepEqual(trimmed.links, []);
 });

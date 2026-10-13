@@ -4,7 +4,7 @@ import { open, confirm, message as nativeMessage } from '@tauri-apps/plugin-dial
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api, type AiProvider, type Answer, type Checkpoint, type Session, type SessionFile, type RepoInfo, type GraphPage, type CommitDetails, type Preview, type FileInfo, type RefInfo, type Stash, type Junk, type RebaseEdit } from './git.ts';
 import { element, findCommits, laneColors, layoutHistory, paintGraph, type Layout } from './graph.ts';
-import { fileMap, searchSymbols, type MapFile, type MapLink } from './codemap.ts';
+import { fileMap, searchSymbols, type CodeGraph } from './codemap.ts';
 import { changedRange, numberDiff, pairLines, type DiffLine } from './diff.ts';
 import { isBlock, parseConflicts, resolveConflicts, type Choice, type Segment } from './conflict.ts';
 import { isNewer } from './update.ts';
@@ -836,42 +836,91 @@ async function openRules() {
   if (!repo || busy) return;
   await run('Loading AI rules…', async () => { get<HTMLTextAreaElement>('rules-text').value = await api.agentRules(repo!.id); dialog('rules-dialog').showModal(); notify('Ready'); });
 }
-let codeMap: { files: MapFile[]; links: MapLink[] } | null = null, codeFile: number | null = null;
+let codeGraph: CodeGraph | null = null, codeMap: ReturnType<typeof fileMap> | null = null;
+let codeFile: number | null = null, codeHover: number | null = null, codeView = { x: 0, y: 0, w: 600, h: 600 }, codeSize = { width: 600, height: 600 };
 async function openCodeMap(rebuild = false) {
   if (!repo || busy) return;
   await run(rebuild ? 'Rebuilding the code index…' : 'Updating the code index…', async () => {
-    codeMap = fileMap(JSON.parse(await api.codeMap(repo!.id, rebuild)), repo!.root); codeFile = null;
-    paintCodeMap(); if (!dialog('codemap-dialog').open) dialog('codemap-dialog').showModal(); notify('Ready');
+    codeGraph = JSON.parse(await api.codeMap(repo!.id, rebuild));
+    // Lay out after opening so the map can match the panel's shape.
+    if (!dialog('codemap-dialog').open) dialog('codemap-dialog').showModal(); layoutCodeMap(); notify('Ready');
   });
 }
-function paintCodeMap() {
-  if (!codeMap) return;
-  const { files, links } = codeMap, svg = get('codemap-graph'), query = input('codemap-search').value.trim();
-  const hits = codeFile !== null ? files[codeFile].symbols.map(symbol => ({ file: codeFile!, symbol })) : searchSymbols(files, query);
-  const lit = new Set(hits.map(hit => hit.file));
-  if (codeFile === null && query) files.forEach((file, i) => { if (file.path.toLowerCase().includes(query.toLowerCase())) lit.add(i); });
-  const languages = [...new Set(files.map(file => file.language))];
-  svg.classList.toggle('filtered', codeFile !== null || !!query);
-  svg.replaceChildren(
-    ...links.map(link => element('line', { x1: files[link.from].x, y1: files[link.from].y, x2: files[link.to].x, y2: files[link.to].y, 'stroke-width': Math.min(1 + Math.log2(link.weight), 5) })),
-    ...files.map((file, i) => {
-      const node = element('g', { tabindex: 0, role: 'button', 'aria-label': `${file.path}, ${file.symbols.length} symbols`, class: lit.has(i) ? 'hit' : '' });
-      const title = element('title', {}); title.textContent = `${file.path} (${file.language}, ${file.symbols.length} symbols)`;
-      const label = element('text', file.x > 480 ? { x: file.x - 8, y: file.y + 3, 'text-anchor': 'end' } : { x: file.x + 6, y: file.y + 3 }); label.textContent = file.path.split('/').pop()!;
-      node.append(title, element('circle', { cx: file.x, cy: file.y, r: 3 + Math.sqrt(file.symbols.length), fill: laneColors[languages.indexOf(file.language) % laneColors.length] }), label);
-      const pick = () => { codeFile = codeFile === i ? null : i; paintCodeMap(); svg.querySelectorAll<SVGGElement>('g')[i].focus(); };
-      node.addEventListener('click', pick);
-      node.addEventListener('keydown', event => { const key = (event as KeyboardEvent).key; if (key === 'Enter' || key === ' ') { event.preventDefault(); pick(); } });
-      return node;
-    }));
-  get('codemap-summary').textContent = codeFile !== null
-    ? `${files[codeFile].path}: ${hits.length} symbols. Select it again to show every file.`
-    : `${files.length} files, ${files.reduce((sum, file) => sum + file.symbols.length, 0)} symbols, ${links.length} file dependencies.${query ? ` ${hits.length} matching symbols.` : ' Search, or select a file to list its symbols.'}`;
-  get('codemap-results').replaceChildren(...hits.map(({ file, symbol }) => {
-    const item = document.createElement('li'), name = document.createElement('strong'), where = document.createElement('span');
-    name.textContent = symbol.name + ' '; where.className = 'muted mono'; where.textContent = `${symbol.kind.toLowerCase()} · ${files[file].path}:${symbol.line_start ?? ''}`;
-    item.append(name, where); return item;
+function layoutCodeMap() {
+  if (!codeGraph || !repo) return;
+  const svg = get('codemap-graph'), box = svg.getBoundingClientRect();
+  codeSize = { width: 600, height: Math.round(600 * Math.min(Math.max(box.height / (box.width || 1), 0.4), 1.5)) || 600 };
+  codeMap = fileMap(codeGraph, repo.root, { ...codeSize, tests: input('codemap-tests').checked }); codeFile = codeHover = null;
+  const { files, links, neighbors } = codeMap;
+  const count = (language: string) => files.filter(file => file.language === language).length;
+  // Rank colours over every indexed file so they stay put when tests are hidden.
+  const all = codeGraph.nodes.filter(node => node.kind === 'File').map(node => node.language ?? '');
+  const rank = [...new Set(all)].sort((a, b) => all.filter(l => l === b).length - all.filter(l => l === a).length);
+  const languages = [...new Set(files.map(file => file.language))].sort((a, b) => rank.indexOf(a) - rank.indexOf(b));
+  const colour = (language: string) => laneColors[rank.indexOf(language) % laneColors.length];
+  const pathLinks = element('g', { class: 'links' }), nodes = element('g', { class: 'nodes' });
+  for (const { from, to, weight } of links) {
+    // A slight bend separates links that would otherwise run on top of each other.
+    const a = files[from], b = files[to], mx = (a.x + b.x) / 2 - (b.y - a.y) * 0.12, my = (a.y + b.y) / 2 + (b.x - a.x) * 0.12;
+    pathLinks.append(element('path', { d: `M${a.x} ${a.y}Q${mx} ${my} ${b.x} ${b.y}`, 'stroke-width': Math.min(0.8 + Math.log2(weight) * 0.6, 4) }));
+  }
+  files.forEach((file, i) => {
+    const node = element('g', { tabindex: 0, role: 'button', 'aria-pressed': 'false', 'aria-label': `${file.path}: ${file.symbols.length} symbols, ${neighbors[i].size} linked files`, class: file.test ? 'test' : '' });
+    const title = element('title', {}); title.textContent = `${file.path}\n${file.language || 'other'} · ${file.symbols.length} symbols · ${neighbors[i].size} linked files`;
+    const flip = file.x > codeSize.width * 0.75, label = element('text', { x: file.x + (flip ? -file.r - 3 : file.r + 3), y: file.y + 3, 'text-anchor': flip ? 'end' : 'start', class: file.r >= 7 || neighbors[i].size >= 8 ? 'major' : '' });
+    label.textContent = file.path.split('/').pop()!;
+    node.append(title, element('circle', { cx: file.x, cy: file.y, r: file.r, fill: colour(file.language) }), label);
+    const pick = () => { codeFile = codeFile === i ? null : i; styleCodeMap(); listCodeMap(); };
+    node.addEventListener('click', pick);
+    node.addEventListener('keydown', event => { const key = (event as KeyboardEvent).key; if (key === 'Enter' || key === ' ') { event.preventDefault(); pick(); } });
+    node.addEventListener('pointerenter', () => { codeHover = i; styleCodeMap(); });
+    node.addEventListener('pointerleave', () => { codeHover = null; styleCodeMap(); });
+    node.addEventListener('focus', () => { codeHover = i; styleCodeMap(); });
+    node.addEventListener('blur', () => { codeHover = null; styleCodeMap(); });
+    nodes.append(node);
+  });
+  svg.replaceChildren(pathLinks, nodes);
+  get('codemap-legend').replaceChildren(...languages.map(language => {
+    const item = document.createElement('span'), swatch = document.createElement('span');
+    swatch.className = 'swatch'; swatch.style.background = colour(language); item.append(swatch, `${language || 'other'} ${count(language)}`); return item;
   }));
+  codeView = { x: 0, y: 0, w: codeSize.width, h: codeSize.height }; viewCodeMap(); styleCodeMap(); listCodeMap();
+}
+function styleCodeMap() {
+  if (!codeMap) return;
+  const { files, links, neighbors } = codeMap, svg = get('codemap-graph'), query = input('codemap-search').value.trim().toLowerCase(), focus = codeHover ?? codeFile;
+  const lit = new Set<number>(focus !== null ? [focus] : searchSymbols(files, query).map(hit => hit.file));
+  if (focus === null && query) files.forEach((file, i) => { if (file.path.toLowerCase().includes(query)) lit.add(i); });
+  const near = focus !== null ? neighbors[focus] : new Set<number>();
+  svg.classList.toggle('dim', focus !== null || !!query);
+  svg.querySelectorAll('.nodes > g').forEach((node, i) => { node.classList.toggle('on', lit.has(i)); node.classList.toggle('near', near.has(i)); node.setAttribute('aria-pressed', String(codeFile === i)); });
+  svg.querySelectorAll('.links > path').forEach((path, i) => path.classList.toggle('on', focus !== null && (links[i].from === focus || links[i].to === focus)));
+}
+function listCodeMap() {
+  if (!codeMap) return;
+  const { files, links, neighbors } = codeMap, query = input('codemap-search').value.trim();
+  const hits = codeFile !== null ? files[codeFile].symbols.map(symbol => ({ file: codeFile!, symbol })) : searchSymbols(files, query);
+  const pick = (file: number) => () => { codeFile = file; styleCodeMap(); listCodeMap(); };
+  if (codeFile === null && !query) {
+    get('codemap-results').replaceChildren(...files.map((_, i) => i).sort((a, b) => neighbors[b].size - neighbors[a].size).slice(0, 50).map(i => {
+      const item = document.createElement('li'), open = document.createElement('button'), name = document.createElement('strong'), where = document.createElement('span');
+      name.textContent = files[i].path.split('/').pop() + ' '; where.className = 'muted mono'; where.textContent = `${neighbors[i].size} linked · ${files[i].symbols.length} symbols · ${files[i].path}`;
+      open.type = 'button'; open.append(name, where); open.onclick = pick(i); item.append(open); return item;
+    }));
+  }
+  get('codemap-summary').textContent = codeFile !== null
+    ? `${files[codeFile].path}: ${hits.length} symbols, linked to ${neighbors[codeFile].size} files. Select it again to show every file.`
+    : `${files.length} files, ${files.reduce((sum, file) => sum + file.symbols.length, 0)} symbols, ${links.length} file dependencies.${query ? ` ${hits.length} matching symbols.` : ' Hover a file to see what it uses; scroll to zoom, drag to pan.'}`;
+  if (codeFile !== null || query) get('codemap-results').replaceChildren(...hits.map(({ file, symbol }) => {
+    const item = document.createElement('li'), open = document.createElement('button'), name = document.createElement('strong'), where = document.createElement('span');
+    name.textContent = symbol.name + ' '; where.className = 'muted mono'; where.textContent = `${symbol.kind.toLowerCase()} · ${files[file].path}:${symbol.line_start ?? ''}`;
+    open.type = 'button'; open.append(name, where); open.onclick = pick(file);
+    item.append(open); return item;
+  }));
+}
+function viewCodeMap() {
+  const svg = get('codemap-graph'), { x, y, w, h } = codeView;
+  svg.setAttribute('viewBox', `${x} ${y} ${w} ${h}`); svg.style.setProperty('--k', String(w / codeSize.width)); svg.classList.toggle('zoomed', w < codeSize.width * 0.65);
 }
 async function saveRules() {
   if (!repo || busy) return;
@@ -1450,7 +1499,27 @@ button('run-stop').onclick = () => { void api.stopProject().catch(report); };
 button('rules-button').onclick = () => { void openRules(); };
 button('codemap-button').onclick = () => { void openCodeMap(); };
 button('codemap-rebuild').onclick = () => { void openCodeMap(true); };
-input('codemap-search').oninput = () => { codeFile = null; paintCodeMap(); };
+input('codemap-search').oninput = () => { codeFile = null; styleCodeMap(); listCodeMap(); };
+input('codemap-tests').onchange = () => layoutCodeMap();
+button('codemap-reset').onclick = () => { codeView = { x: 0, y: 0, w: codeSize.width, h: codeSize.height }; viewCodeMap(); };
+{
+  const svg = get('codemap-graph') as unknown as SVGSVGElement;
+  const point = (event: MouseEvent) => new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM()!.inverse());
+  svg.addEventListener('wheel', event => {
+    event.preventDefault();
+    const at = point(event), w = Math.min(Math.max(codeView.w * (event.deltaY > 0 ? 1.15 : 1 / 1.15), codeSize.width / 8), codeSize.width), ratio = w / codeView.w;
+    codeView = { x: at.x - (at.x - codeView.x) * ratio, y: at.y - (at.y - codeView.y) * ratio, w, h: codeView.h * ratio }; viewCodeMap();
+  }, { passive: false });
+  let drag: { x: number; y: number; cx: number; cy: number; moved: boolean } | null = null;
+  svg.addEventListener('pointerdown', event => { if ((event.target as Element).closest('.nodes > g')) return; drag = { x: codeView.x, y: codeView.y, cx: event.clientX, cy: event.clientY, moved: false }; svg.setPointerCapture(event.pointerId); });
+  svg.addEventListener('pointermove', event => {
+    if (!drag) return;
+    const scale = svg.getScreenCTM()!.a, dx = event.clientX - drag.cx, dy = event.clientY - drag.cy;
+    drag.moved ||= Math.hypot(dx, dy) > 3; codeView = { ...codeView, x: drag.x - dx / scale, y: drag.y - dy / scale }; viewCodeMap();
+  });
+  svg.addEventListener('pointerup', () => { if (drag && !drag.moved && codeFile !== null) { codeFile = null; styleCodeMap(); listCodeMap(); } drag = null; });
+  svg.addEventListener('dblclick', event => { if (!(event.target as Element).closest('.nodes > g')) button('codemap-reset').click(); });
+}
 button('rules-starter').onclick = () => { const text = get<HTMLTextAreaElement>('rules-text'); if (!text.value.includes(STARTER_RULES.split('\n')[0])) text.value = (text.value.trim() ? text.value.trimEnd() + '\n\n' : '') + STARTER_RULES; };
 get<HTMLFormElement>('rules-form').onsubmit = event => { event.preventDefault(); void saveRules(); };
 button('help-button').onclick = () => dialog('help-dialog').showModal();
