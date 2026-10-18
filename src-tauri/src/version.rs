@@ -10,8 +10,9 @@ const READ_VERSION: &str = r#"version() {
   for f in package.json Cargo.toml VERSION; do
     git cat-file -e "$1$f" 2>/dev/null || continue
     # shortcut: takes the first version-shaped line, which is the project version in standard manifests.
-    git show "$1$f" | sed -n -e 's/^ *"version": *"\([^"]*\)".*/\1/p' -e 's/^version *= *"\([^"]*\)".*/\1/p' -e 's/^\([0-9][0-9A-Za-z.+-]*\)$/\1/p' | head -n 1
-    return
+    found=$(git show "$1$f" | sed -n -e 's/^ *"version": *"\([^"]*\)".*/\1/p' -e 's/^version *= *"\([^"]*\)".*/\1/p' -e 's/^\([0-9][0-9A-Za-z.+-]*\)$/\1/p' | head -n 1)
+    # A manifest without a version (a private package.json, a Cargo workspace) defers to the next file.
+    [ -n "$found" ] && { echo "$found"; return; }
   done
 }
 "#;
@@ -64,14 +65,17 @@ fn manifest_line(text: &str, key: &str) -> Option<String> {
             .map(str::to_owned)
     })
 }
+/// The first version found in package.json, Cargo.toml, then VERSION (the same order as the hooks).
 pub fn current(root: &Path) -> Option<String> {
-    if let Some(text) = read(&root.join("package.json")) {
-        return serde_json::from_str::<serde_json::Value>(&text).ok()?["version"]
-            .as_str()
-            .map(str::to_owned);
+    let package = read(&root.join("package.json"))
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| value["version"].as_str().map(str::to_owned));
+    if package.is_some() {
+        return package;
     }
-    if let Some(text) = read(&root.join("Cargo.toml")) {
-        return manifest_line(&text, "version");
+    if let Some(version) = read(&root.join("Cargo.toml")).and_then(|t| manifest_line(&t, "version"))
+    {
+        return Some(version);
     }
     read(&root.join("VERSION"))
         .and_then(|t| t.lines().next().map(|l| l.trim().to_owned()))
@@ -299,6 +303,18 @@ mod tests {
         assert!(
             log.starts_with("# Changelog\n\n## 0.3.0 — ") && log.contains("- Add X\n\n## 0.2.0")
         );
+    }
+
+    #[test]
+    fn manifests_without_a_version_defer_to_the_next_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (root, hooks) = (dir.path(), dir.path().join(".git/hooks"));
+        fs::write(root.join("package.json"), "{\"private\": true}\n").unwrap();
+        fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = []\n").unwrap();
+        enable(root, &hooks).unwrap();
+        assert_eq!(current(root).as_deref(), Some("0.1.0"));
+        assert_eq!(apply(root, "0.1.0", "0.1.1").unwrap(), ["VERSION"]);
+        assert_eq!(current(root).as_deref(), Some("0.1.1"));
     }
 
     #[test]

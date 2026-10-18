@@ -489,7 +489,9 @@ async function activateRepository(next: RepoInfo, refresh = false) {
 async function openPath(path: string, load = api.open) { await activateRepository(await load(path)); }
 async function closeRepository(item: RepoInfo) {
   if (busy) return;
-  await api.closeRepository(item.id); openRepos = openRepos.filter(repo => repo.id !== item.id); rememberOpenRepos();
+  // A background fetch holds the repository lock; closing during it would be refused.
+  try { if (backgroundFetch) await backgroundFetch; await api.closeRepository(item.id); } catch (error) { report(error); return; }
+  openRepos = openRepos.filter(repo => repo.id !== item.id); rememberOpenRepos();
   if (repo?.id !== item.id) return;
   saveDraft();
   const next = openRepos[0];
@@ -1566,8 +1568,8 @@ if (isTauri()) {
     if (requested) paths = [requested, ...paths.filter(path => path !== requested)];
     if (last && !paths.includes(last)) paths.unshift(last);
     for (const path of paths.slice(0, 12)) {
-      // openSaved forgets folders that were moved or deleted.
-      try { await openSaved(path); } catch (error) { if (!String(error).includes('no longer available')) throw error; }
+      // openSaved forgets folders that were moved or deleted; any other failure still restores the remaining tabs.
+      try { await openSaved(path); } catch (error) { if (!String(error).includes('no longer available')) report(error); }
     }
     const active = openRepos.find(item => item.root === last);
     if (active) { save('lastRepository', active.root); if (active.id !== repo?.id) await activateRepository(active, true); }

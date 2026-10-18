@@ -121,28 +121,7 @@ impl Backend {
             "500",
         ]);
         args.extend([os(commit.unwrap_or("HEAD")), os("--"), path]);
-        let output = read(&repo.root, &args)?;
-        let fields: Vec<_> = output
-            .split(|b| *b == 0)
-            .filter(|v| !v.is_empty())
-            .collect();
-        let mut commits = Vec::new();
-        for row in fields.chunks(4) {
-            if row.len() != 4 {
-                break;
-            }
-            let oid = text(row[0]).to_owned();
-            if valid_oid(&oid).is_err() {
-                continue;
-            }
-            commits.push(FileCommit {
-                oid,
-                timestamp: text(row[1]).parse().unwrap_or(0),
-                author: display(row[2]),
-                subject: display(row[3]),
-            });
-        }
-        Ok(commits)
+        parse_file_log(&read(&repo.root, &args)?)
     }
 
     pub fn file_blame(
@@ -174,6 +153,31 @@ impl Backend {
         })?;
         parse_blame(&output)
     }
+}
+
+/// `git log -z` rows of hash, time, author, subject; empty fields (an empty subject) keep their place.
+fn parse_file_log(data: &[u8]) -> Result<Vec<FileCommit>> {
+    let data = data.strip_suffix(b"\0").unwrap_or(data);
+    if data.is_empty() {
+        return Ok(Vec::new());
+    }
+    let fields: Vec<_> = data.split(|b| *b == 0).collect();
+    if fields.len() % 4 != 0 {
+        return Err("Malformed Git file history output".into());
+    }
+    fields
+        .chunks(4)
+        .map(|row| {
+            let oid = text(row[0]);
+            valid_oid(&oid)?;
+            Ok(FileCommit {
+                oid,
+                timestamp: text(row[1]).parse().unwrap_or(0),
+                author: display(row[2]),
+                subject: display(row[3]),
+            })
+        })
+        .collect()
 }
 
 fn parse_blame(data: &[u8]) -> Result<Vec<BlameLine>> {
@@ -223,6 +227,24 @@ mod tests {
             gitignore_pattern(b"#file[1]*?.txt ", false),
             br"/\#file\[1]\*\?.txt\ "
         );
+    }
+
+    #[test]
+    fn file_history_keeps_rows_aligned_after_an_empty_subject() {
+        let (a, b, c) = ("a".repeat(40), "b".repeat(40), "c".repeat(40));
+        let data =
+            format!("{a}\x001\x00Ada\x00\x00{b}\x002\x00\x00second\x00{c}\x003\x00Bo\x00third\x00");
+        let commits = parse_file_log(data.as_bytes()).unwrap();
+        assert_eq!(commits.len(), 3);
+        assert_eq!(
+            (commits[0].subject.as_str(), commits[1].author.as_str()),
+            ("", "")
+        );
+        assert_eq!(
+            (commits[2].oid.as_str(), commits[2].subject.as_str()),
+            (c.as_str(), "third")
+        );
+        assert!(parse_file_log(b"").unwrap().is_empty());
     }
 
     #[test]

@@ -28,9 +28,10 @@ impl Backend {
             );
         }
         let base = if info.upstream.is_some() {
+            // The fork point, not the upstream tip: rebasing onto newer upstream commits would also pull them in.
             text(line(&read(
                 &repo.root,
-                &argv(&["rev-parse", "@{upstream}"]),
+                &argv(&["merge-base", "HEAD", "@{upstream}"]),
             )?))
         } else {
             let default = optional(&repo.root, &["symbolic-ref", "refs/remotes/origin/HEAD"])?

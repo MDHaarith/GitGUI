@@ -823,6 +823,45 @@ fn conflicts_are_resolved_per_file_and_the_merge_continues() {
 }
 
 #[test]
+fn session_review_ignores_checkpoints_saved_before_discarding() {
+    let f = Fixture::new();
+    f.commit("a.txt", "one\n", "base");
+    f.commit("b.txt", "one\n", "second");
+    let (mut b, info) = f.open();
+    f.write("a.txt", b"agent edit\n");
+    f.write("b.txt", b"throw away\n");
+    let info = b.status(info.id).unwrap();
+    let file = info
+        .files
+        .iter()
+        .find(|x| x.path == "b.txt")
+        .unwrap()
+        .id
+        .clone();
+    let info = b.discard(info.id, &[file], &info.token).unwrap();
+    let session = b.session(info.id).unwrap();
+    assert!(session.checkpoint.is_none());
+    let changed: Vec<_> = session.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(changed, ["a.txt"]);
+}
+
+#[test]
+fn cleanup_keeps_commits_on_their_fork_point_when_the_upstream_moved() {
+    let f = Fixture::new();
+    let base = f.commit("file", "base\n", "base");
+    cmd(&f.root, &["switch", "-q", "-c", "feature"]);
+    f.commit("a", "a\n", "first change");
+    cmd(&f.root, &["branch", "--set-upstream-to=main"]);
+    cmd(&f.root, &["switch", "-q", "main"]);
+    f.commit("m", "m\n", "upstream moved");
+    cmd(&f.root, &["switch", "-q", "feature"]);
+    let (mut b, info) = f.open();
+    let plan = b.rebase_plan(info.id, &info.token).unwrap();
+    assert_eq!(plan.base, base);
+    assert_eq!(plan.commits.len(), 1);
+}
+
+#[test]
 fn undo_commit_keeps_changes_staged_and_refuses_pushed_or_first_commits() {
     let f = Fixture::new();
     f.commit("a.txt", "one\n", "base");
@@ -832,12 +871,14 @@ fn undo_commit_keeps_changes_staged_and_refuses_pushed_or_first_commits() {
         .unwrap_err()
         .contains("first commit"));
     f.commit("a.txt", "two\n", "second");
-    cmd(&f.root, &["tag", "v9.9.9"]);
+    // Tags as the versioning hook makes them are removed; tags the user made stay.
+    cmd(&f.root, &["tag", "-a", "v9.9.9", "-m", "Version 9.9.9"]);
+    cmd(&f.root, &["tag", "v-mine"]);
     let info = b.status(info.id).unwrap();
     let info = b.undo_commit(info.id, &info.token).unwrap();
     assert!(info.files.iter().any(|x| x.index == "M"));
     assert_eq!(cmd(&f.root, &["log", "--format=%s"]), "base");
-    assert_eq!(cmd(&f.root, &["tag"]), "");
+    assert_eq!(cmd(&f.root, &["tag"]), "v-mine");
 }
 
 #[test]
@@ -1065,12 +1106,48 @@ fn amend_keeps_version_tags_on_the_new_commit() {
         )
         .unwrap();
     // Amending a code change must not ask for a second version bump.
+    cmd(&f.root, &["tag", "v-mine"]);
     f.write("main.rs", b"fn main() { println!(); }\n");
     let info = b.status(info.id).unwrap();
     let ids: Vec<_> = info.files.iter().map(|x| x.id.clone()).collect();
     let info = b.stage(info.id, &ids, false, &info.token).unwrap();
     let info = b
         .commit(info.id, "Add main", &info.token, false, None, true)
+        .unwrap();
+    assert_eq!(info.version.as_deref(), Some("0.2.0"));
+    assert_eq!(
+        cmd(&f.root, &["rev-parse", "v0.2.0^{commit}"]),
+        info.head.unwrap()
+    );
+    // A tag the user made is not the hook's to move or delete.
+    assert_eq!(cmd(&f.root, &["tag", "--list", "v-mine"]), "v-mine");
+}
+
+#[test]
+fn versioning_works_when_package_json_has_no_version() {
+    let f = Fixture::new();
+    f.write("package.json", b"{\"private\": true}\n");
+    let (mut b, info) = f.open();
+    let info = b.enable_versioning(info.id).unwrap();
+    assert_eq!(info.version.as_deref(), Some("0.1.0"));
+    let ids: Vec<_> = info.files.iter().map(|x| x.id.clone()).collect();
+    let info = b.stage(info.id, &ids, false, &info.token).unwrap();
+    let info = b
+        .commit(info.id, "Start", &info.token, false, None, false)
+        .unwrap();
+    f.write("main.js", b"console.log(1);\n");
+    let info = b.status(info.id).unwrap();
+    let ids: Vec<_> = info.files.iter().map(|x| x.id.clone()).collect();
+    let info = b.stage(info.id, &ids, false, &info.token).unwrap();
+    let info = b
+        .commit(
+            info.id,
+            "Add main",
+            &info.token,
+            false,
+            Some("minor".into()),
+            false,
+        )
         .unwrap();
     assert_eq!(info.version.as_deref(), Some("0.2.0"));
     assert_eq!(

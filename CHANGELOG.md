@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.1 — 2026-10-18
+- Review AI changes no longer hides earlier work after discarding a file, a hard reset, or cleaning up commits
+- Amending or undoing a commit only moves or removes the version tags the hook made; your own v* tags stay
+- Versioning works when package.json or Cargo.toml has no version: VERSION is used instead of blocking every commit
+- Clean up commits keeps the commits on their fork point instead of also rebasing onto newer upstream commits
+- File history stays correct when a commit has an empty message
+- Resolve… works on files with Windows (CRLF) line endings
+- Closing a tab during a background fetch waits for it instead of failing silently; one failing repository no longer stops the other tabs from reopening
+
 ## 0.17.0 — 2026-10-13
 - Code map clusters files by folder, fills the panel, and no longer collapses around the busiest file
 - Hovering or selecting a file in the code map highlights the files it is linked to and dims the rest

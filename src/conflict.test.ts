@@ -17,3 +17,11 @@ test('text without complete markers is left alone', () => {
   assert.equal(parseConflicts('a\n<<<<<<< x\nb').filter(isBlock).length, 0);
   assert.equal(resolveConflicts(parseConflicts('a\n<<<<<<< x\nb'), []), 'a\n<<<<<<< x\nb');
 });
+
+test('CRLF files are parsed and keep their line endings', () => {
+  const segments = parseConflicts('top\r\n<<<<<<< HEAD\r\nours\r\n=======\r\ntheirs\r\n>>>>>>> other\r\nend\r\n');
+  const blocks = segments.filter(isBlock);
+  assert.equal(blocks.length, 1);
+  assert.deepEqual([blocks[0].oursLabel, blocks[0].theirsLabel], ['HEAD', 'other']);
+  assert.equal(resolveConflicts(segments, ['theirs']), 'top\r\ntheirs\r\nend\r\n');
+});

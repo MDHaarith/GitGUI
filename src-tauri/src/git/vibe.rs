@@ -401,13 +401,8 @@ impl Backend {
             return Err("This commit was already pushed. Undoing it would rewrite shared history; make a new commit that fixes it instead.".into());
         }
         // Version tags made by the post-commit hook would point at a commit that no longer exists.
-        for tag in text(&read(
-            &repo.root,
-            &argv(&["tag", "--points-at", "HEAD", "--list", "v*"]),
-        )?)
-        .lines()
-        {
-            repo.write(&argv(&["tag", "-d", tag]), None, None, None)?;
+        for tag in repo.version_tags("HEAD")? {
+            repo.write(&argv(&["tag", "-d", &tag]), None, None, None)?;
         }
         repo.write(
             &argv(&["reset", "-q", "--soft", "HEAD~1"]),
@@ -565,11 +560,14 @@ impl Backend {
 }
 
 // Checkpoints GitGUI saves on its own; they would hide the AI's work from the session review.
-const AUTOMATIC: [&str; 4] = [
+const AUTOMATIC: [&str; 7] = [
     "Automatic checkpoint",
     "Before undoing ",
     "Before restoring ",
     "Before throwing away ",
+    "Before discarding ",
+    "Before hard reset",
+    "Before cleaning up commits",
 ];
 
 impl Repository {

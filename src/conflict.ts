@@ -8,13 +8,14 @@ export function parseConflicts(text: string): Segment[] {
   const lines = text.split('\n'); const segments: Segment[] = []; let plain: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     if (!lines[i].startsWith('<<<<<<<')) { plain.push(lines[i]); continue; }
-    const block: ConflictBlock = { ours: [], theirs: [], oursLabel: lines[i].slice(8), theirsLabel: '' };
+    // Markers in a CRLF file end in \r; content lines keep theirs so the resolved file keeps its line endings.
+    const block: ConflictBlock = { ours: [], theirs: [], oursLabel: lines[i].slice(8).replace(/\r$/, ''), theirsLabel: '' };
     let part: string[] | null = block.ours; let end = -1;
     for (let j = i + 1; j < lines.length; j++) {
       const line = lines[j];
       if (part === block.ours && line.startsWith('|||||||')) part = null; // diff3 base: dropped from both choices
-      else if (part !== block.theirs && line === '=======') part = block.theirs;
-      else if (part === block.theirs && line.startsWith('>>>>>>>')) { block.theirsLabel = line.slice(8); end = j; break; }
+      else if (part !== block.theirs && /^=======\r?$/.test(line)) part = block.theirs;
+      else if (part === block.theirs && line.startsWith('>>>>>>>')) { block.theirsLabel = line.slice(8).replace(/\r$/, ''); end = j; break; }
       else part?.push(line);
     }
     if (end < 0) { plain.push(lines[i]); continue; } // an unterminated marker is ordinary text

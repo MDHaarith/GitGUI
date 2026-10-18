@@ -455,12 +455,9 @@ impl Backend {
         repo.write(&args, Some(message.as_bytes()), None, None)?;
         if let Some(old) = old_head {
             // Version tags still point at the replaced commit: move them by re-running the tagging hook.
-            let tags = read(
-                &repo.root,
-                &argv(&["tag", "--points-at", &old, "--list", "v*"]),
-            )?;
+            let tags = repo.version_tags(&old)?;
             if !tags.is_empty() {
-                for tag in text(&tags).lines() {
+                for tag in &tags {
                     repo.write(&argv(&["tag", "-d", tag]), None, None, None)?;
                 }
                 repo.write(
@@ -933,6 +930,27 @@ impl Repository {
         } else {
             Ok(info)
         }
+    }
+    /// Tags at `commit` made by the versioning post-commit hook (`vX` annotated "Version X"); tags you made stay out.
+    fn version_tags(&self, commit: &str) -> Result<Vec<String>> {
+        let output = read(
+            &self.root,
+            &argv(&[
+                "for-each-ref",
+                "--points-at",
+                commit,
+                "--format=%(refname:strip=2)%00%(contents:subject)",
+                "refs/tags/v*",
+            ]),
+        )?;
+        Ok(text(&output)
+            .lines()
+            .filter_map(|row| {
+                let (name, subject) = row.split_once('\0')?;
+                (subject.strip_prefix("Version ") == name.strip_prefix('v'))
+                    .then(|| name.to_owned())
+            })
+            .collect())
     }
     /// True when HEAD is already on its upstream, so rewriting it would change shared history.
     fn pushed(&self, info: &RepoInfo) -> Result<bool> {
