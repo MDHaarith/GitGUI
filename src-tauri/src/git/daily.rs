@@ -17,8 +17,17 @@ pub struct Junk {
     pub bytes: u64,
 }
 
-/// Bytes under `path`, or None when it holds a Git repository; symlinks are not followed.
+/// `.env` and `.env.*` files hold secrets that no build tool can recreate.
+fn is_env(name: &OsStr) -> bool {
+    let name = raw(name);
+    name == b".env" || name.starts_with(b".env.")
+}
+
+/// Bytes under `path`, or None when it holds a Git repository or a .env file; symlinks are not followed.
 fn disk_size(path: &Path) -> Option<u64> {
+    if path.file_name().is_some_and(is_env) {
+        return None;
+    }
     let meta = fs::symlink_metadata(path).ok()?;
     if !meta.is_dir() {
         return Some(meta.len());
@@ -377,7 +386,7 @@ impl Backend {
                 bytes,
             })
             .collect();
-        list.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+        list.sort_by_key(|entry| std::cmp::Reverse(entry.bytes));
         Ok(list)
     }
     /// Permanently deletes chosen ignored entries; only paths Git still reports as ignored are touched.

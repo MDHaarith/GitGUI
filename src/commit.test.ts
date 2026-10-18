@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { summaryHint } from './commit.ts';
+import { summaryHint, unfence } from './commit.ts';
 
 test('summary guidance follows the 50/72 convention', () => {
   assert.deepEqual(summaryHint('   '), { text: '', warning: false });
@@ -11,4 +11,10 @@ test('summary guidance follows the 50/72 convention', () => {
 
 test('summary length counts characters, not UTF-16 units', () => {
   assert.equal(summaryHint('🙂'.repeat(50)).text, '50/50');
+});
+
+test('code fences around AI replies are removed', () => {
+  assert.equal(unfence('```text\nAdd login\n\n- Form\n```\n'), 'Add login\n\n- Form');
+  assert.equal(unfence('```\nAdd login\n```'), 'Add login');
+  assert.equal(unfence(' Add `x` support '), 'Add `x` support');
 });

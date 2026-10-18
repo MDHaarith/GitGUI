@@ -113,7 +113,7 @@ impl Backend {
         file_id: Option<String>,
     ) -> Result<Preview> {
         let repo = self.repo(id)?;
-        let details = repo.details(oid, parent)?;
+        let (details, files) = repo.details_and_paths(oid, parent)?;
         if details.shallow && details.parents.is_empty() {
             return Ok(Preview { text: "Parent history is unavailable in this shallow clone. Fetch more history to view the diff.".into(), truncated: false, binary: false });
         }
@@ -125,7 +125,6 @@ impl Backend {
                 .iter()
                 .find(|f| f.id == file_id)
                 .ok_or("File is not part of this commit")?;
-            let files = repo.commit_paths(oid, details.parent.as_deref())?;
             let path = files
                 .get(&file_id)
                 .ok_or("File is not part of this commit")?;
@@ -207,6 +206,14 @@ impl Repository {
         Ok(refs)
     }
     pub(super) fn details(&self, oid: &str, chosen: Option<String>) -> Result<CommitDetails> {
+        Ok(self.details_and_paths(oid, chosen)?.0)
+    }
+    /// Commit details plus the real paths of its changed files, keyed by file id.
+    pub(super) fn details_and_paths(
+        &self,
+        oid: &str,
+        chosen: Option<String>,
+    ) -> Result<(CommitDetails, HashMap<String, OsString>)> {
         valid_oid(oid)?;
         let output = read(
             &self.root,
@@ -234,12 +241,12 @@ impl Repository {
             None => parents.first().cloned(),
         };
         let shallow = self.shallow()?.contains(oid);
-        let files = if shallow && parents.is_empty() {
-            Vec::new()
+        let (files, paths) = if shallow && parents.is_empty() {
+            (Vec::new(), HashMap::new())
         } else {
-            self.changed_files(oid, parent.as_deref())?.0
+            self.changed_files(oid, parent.as_deref())?
         };
-        Ok(CommitDetails {
+        let details = CommitDetails {
             oid: text(f[0]),
             parents,
             author: display(f[2]),
@@ -249,7 +256,8 @@ impl Repository {
             parent,
             files,
             shallow,
-        })
+        };
+        Ok((details, paths))
     }
     pub(super) fn diff_args(&self, oid: &str, parent: Option<&str>, names: bool) -> Vec<OsString> {
         let mut args = if let Some(parent) = parent {

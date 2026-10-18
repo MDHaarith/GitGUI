@@ -45,9 +45,9 @@ function mockTauri(responses) {
   };
 }
 function chrome() {
-  const cache = join(homedir(), '.cache/ms-playwright');
-  const found = existsSync(cache) && readdirSync(cache).filter(name => /^chromium-\d+$/.test(name)).sort().reverse()
-    .map(name => join(cache, name, 'chrome-linux64/chrome')).find(existsSync);
+  const cache = process.env.PLAYWRIGHT_BROWSERS_PATH ?? join(homedir(), '.cache/ms-playwright');
+  const found = existsSync(cache) ? readdirSync(cache).filter(name => /^chromium-\d+$/.test(name)).sort().reverse()
+    .flatMap(name => ['chrome-linux64', 'chrome-linux'].map(folder => join(cache, name, folder, 'chrome'))).find(existsSync) : undefined;
   return process.env.CHROME_PATH ?? found ?? undefined;
 }
 const overlap = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
@@ -66,7 +66,12 @@ after(async () => { await browser?.close(); await server?.close(); });
 
 test('the fake repository renders with branches, remote actions, and three commits', async () => {
   assert.equal(await tab.locator('#history-rows tr').count(), 3);
-  assert.equal(await tab.locator('.ref-action', { hasText: 'Check out' }).count(), 2);
+  // Branch actions live in each row's ⋯ menu.
+  const remotes = tab.locator('.ref-row:has(.ref-item[data-kind="remote"])');
+  assert.equal(await remotes.count(), 2);
+  await remotes.first().locator('.ref-more').click();
+  assert.equal(await tab.locator('.ref-menu [role="menuitem"]', { hasText: 'Check out' }).count(), 1);
+  await tab.keyboard.press('Escape');
 });
 
 test('the progress bar never covers the repository picker', async () => {

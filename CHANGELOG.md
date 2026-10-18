@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.18.0 — 2026-10-18
+- Each open repository has its own lock: a fetch, push, clone, or slow commit in one tab no longer blocks the others
+- A commit refused by the safeguards (failing tests, a secret) undoes its version bump and changelog entry
+- Restoring a checkpoint removes files created after it (the pre-restore checkpoint keeps them)
+- Free up space never offers .env files, or folders holding them, for deletion
+- A paused `git am` is shown as such and Continue/Abort run `git am` instead of `git rebase`
+- Git is found on PATH when /usr/bin/git does not exist (NixOS, Homebrew on Linux)
+- Dropdowns stay open while the window refreshes in the background
+- AI-written commit messages and pull requests drop a surrounding Markdown code fence
+- Clean up commits checks for published commits with one Git call; opening a commit's file diff lists its files once
+- Two AI agent requests at once no longer share (and delete) the same temporary folder
+
 ## 0.17.1 — 2026-10-18
 - Review AI changes no longer hides earlier work after discarding a file, a hard reset, or cleaning up commits
 - Amending or undoing a commit only moves or removes the version tags the hook made; your own v* tags stay

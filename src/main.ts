@@ -11,7 +11,7 @@ import { isNewer } from './update.ts';
 import { wireDropdown } from './dropdown.ts';
 import { aiCost, explainCrash, explainError, explainState, sortByRisk } from './explain.ts';
 import { forgetRecent, isUnavailable, parseRecent, rememberRecent } from './recent.ts';
-import { summaryHint } from './commit.ts';
+import { summaryHint, unfence } from './commit.ts';
 import { markup } from './template.ts';
 import { PRESETS, STARTER_RULES } from './ai.ts';
 import './styles.css';
@@ -439,7 +439,7 @@ async function saveCheckpoint() {
 }
 async function restoreCheckpoint(checkpoint: Checkpoint) {
   if (!repo || busy) return;
-  if (!await confirm(`Restore "${checkpoint.label}" (${new Date(checkpoint.timestamp * 1000).toLocaleString()})? Your current files are saved as a checkpoint first.`, { title: 'Restore checkpoint', kind: 'warning' })) return;
+  if (!await confirm(`Restore "${checkpoint.label}" (${new Date(checkpoint.timestamp * 1000).toLocaleString()})? Files created since then are removed. Your current files, those included, are saved as a checkpoint first.`, { title: 'Restore checkpoint', kind: 'warning' })) return;
   dialog('checkpoint-dialog').close();
   await mutate('Restoring checkpoint…', () => api.restoreCheckpoint(repo!.id, checkpoint.oid, repo!.token));
 }
@@ -489,8 +489,7 @@ async function activateRepository(next: RepoInfo, refresh = false) {
 async function openPath(path: string, load = api.open) { await activateRepository(await load(path)); }
 async function closeRepository(item: RepoInfo) {
   if (busy) return;
-  // A background fetch holds the repository lock; closing during it would be refused.
-  try { if (backgroundFetch) await backgroundFetch; await api.closeRepository(item.id); } catch (error) { report(error); return; }
+  try { await api.closeRepository(item.id); } catch (error) { report(error); return; }
   openRepos = openRepos.filter(repo => repo.id !== item.id); rememberOpenRepos();
   if (repo?.id !== item.id) return;
   saveDraft();
@@ -763,7 +762,7 @@ async function writeMessage() {
   if (!repo || busy) return;
   await run('The AI is writing the commit message…', async () => {
     const answer = await ask('message', 'staged'); if (!answer) return;
-    const [summary, ...rest] = answer.text.split('\n');
+    const [summary, ...rest] = unfence(answer.text).split('\n');
     input('summary').value = summary.trim(); get<HTMLTextAreaElement>('body').value = rest.join('\n').trim(); saveDraft();
     notify('Message drafted. Read it before committing.');
   });
@@ -783,7 +782,7 @@ async function writePullRequestWithAi() {
     const ref = page?.refs.find(item => item.isHead && item.kind === 'local');
     if (!ref) throw new Error('Could not identify the current branch. Refresh and try again.');
     const answer = await ask('pr', 'branch:' + ref.id); if (!answer) return;
-    const [title, ...body] = answer.text.split('\n'); input('pr-title').value = title.trim();
+    const [title, ...body] = unfence(answer.text).split('\n'); input('pr-title').value = title.trim();
     get<HTMLTextAreaElement>('pr-body').value = body.join('\n').trim(); notify('Draft ready. Review it before creating the pull request.');
   });
 }

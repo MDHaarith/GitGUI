@@ -16,7 +16,7 @@ export function wireDropdown(control: HTMLSelectElement, openRepository?: () => 
   trigger.popoverTargetElement = menu; trigger.setAttribute('aria-controls', menu.id);
   control.before(wrapper); control.hidden = true; wrapper.append(control, trigger, menu);
   for (const label of control.labels ?? []) label.htmlFor = trigger.id;
-  let items: HTMLElement[] = []; let active = -1; let restoreFocus = false;
+  let items: HTMLElement[] = []; let active = -1; let restoreFocus = false; let rendered = '';
   const isOpen = () => menu.matches(':popover-open');
   function activate(index: number) {
     if (!items.length) return;
@@ -27,6 +27,11 @@ export function wireDropdown(control: HTMLSelectElement, openRepository?: () => 
   }
   function close() { if (isOpen()) menu.hidePopover(); }
   function sync() {
+    // Controls refresh often (status checks, selection); an unchanged list keeps an open menu open.
+    const signature = JSON.stringify([control.disabled, control.title, control.getAttribute('aria-description'), control.value,
+      [...control.options].map(option => [option.value, option.textContent, option.disabled, option.dataset.current, (option.parentElement as HTMLOptGroupElement).label])]);
+    if (signature === rendered) return;
+    rendered = signature;
     close();
     if (control.disabled && document.activeElement === trigger) restoreFocus = true;
     trigger.disabled = control.disabled; trigger.title = control.title;

@@ -66,6 +66,17 @@ pub(super) fn display(data: &[u8]) -> String {
             .collect()
     }
 }
+/// System Git: /usr/bin/git where it exists, else the first git on PATH (NixOS, Homebrew on Linux).
+pub fn git_program() -> &'static str {
+    static PROGRAM: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    PROGRAM.get_or_init(|| {
+        if cfg!(target_os = "linux") && Path::new("/usr/bin/git").is_file() {
+            "/usr/bin/git"
+        } else {
+            "git"
+        }
+    })
+}
 pub fn redact(message: &str) -> String {
     let mut out = message.to_owned();
     let mut offset = 0;
@@ -145,11 +156,7 @@ pub(super) fn execute(
     timeout: Option<Duration>,
     progress: Option<Progress>,
 ) -> Result<Output> {
-    let mut command = Command::new(if cfg!(target_os = "linux") {
-        "/usr/bin/git"
-    } else {
-        "git"
-    });
+    let mut command = Command::new(git_program());
     command
         .current_dir(root)
         .args([

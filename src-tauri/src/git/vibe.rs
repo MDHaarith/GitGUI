@@ -371,7 +371,7 @@ impl Backend {
         repo.checked(token)?;
         let operation = repo
             .in_progress()?
-            .ok_or("No merge, rebase, cherry-pick, or revert is in progress.")?;
+            .ok_or("No merge, rebase, cherry-pick, revert, or git am is in progress.")?;
         if operation == "sequencer" {
             return Err("Finish this multi-commit operation in the terminal.".into());
         }
@@ -379,7 +379,7 @@ impl Backend {
             &argv(&[
                 "-c",
                 "core.editor=true",
-                operation,
+                operation.strip_prefix("git ").unwrap_or(operation),
                 if abort { "--abort" } else { "--continue" },
             ]),
             None,

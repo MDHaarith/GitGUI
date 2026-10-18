@@ -27,7 +27,7 @@ const LAUNCHER_ENV: [&str; 12] = [
 
 /// The command that starts this project: `git config gitgui.runCommand`, else a guess from its files.
 pub fn command(root: &Path) -> Option<String> {
-    let configured = Command::new("git")
+    let configured = Command::new(crate::git::git_program())
         .current_dir(root)
         .args(["config", "gitgui.runCommand"])
         .output()

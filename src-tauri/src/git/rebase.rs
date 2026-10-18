@@ -169,20 +169,19 @@ impl Backend {
                 return Err("Commit messages must be non-empty and under 128 KiB.".into());
             }
         }
-        for commit in &plan.commits {
-            if !read(
-                &repo.root,
-                &argv(&[
-                    "for-each-ref",
-                    "--format=%(refname)",
-                    &format!("--contains={}", commit.oid),
-                    "refs/remotes/",
-                ]),
-            )?
-            .is_empty()
-            {
-                return Err("This range contains commits already published to the remote.".into());
-            }
+        // Commits also reachable from a remote-tracking branch are already published.
+        let unpublished = read(
+            &repo.root,
+            &argv(&[
+                "rev-list",
+                "--count",
+                &format!("{}..HEAD", plan.base),
+                "--not",
+                "--remotes",
+            ]),
+        )?;
+        if text(line(&unpublished)) != plan.commits.len().to_string() {
+            return Err("This range contains commits already published to the remote.".into());
         }
         repo.save_checkpoint("Before cleaning up commits")?;
         let dir = std::env::temp_dir();

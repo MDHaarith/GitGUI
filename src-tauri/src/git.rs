@@ -27,8 +27,8 @@ mod share;
 mod vibe;
 pub use daily::{Junk, Stash};
 pub use files::{BlameLine, FileCommit};
-pub use process::redact;
 use process::*;
+pub use process::{git_program, redact};
 pub use rebase::{RebaseCommit, RebaseEdit, RebasePlan};
 pub use vibe::{Session, SessionFile};
 
@@ -172,6 +172,8 @@ pub fn summarize(numstat: &str) -> String {
     )
 }
 
+/// Version files as they were before a bump: (path, contents if it existed), and `git ls-files -s -z` output.
+type SavedFiles = (Vec<(&'static str, Option<Vec<u8>>)>, Vec<u8>);
 struct GraphCache {
     id: u64,
     scope: Option<String>,
@@ -193,6 +195,13 @@ pub struct Backend {
 }
 
 impl Backend {
+    /// An empty backend whose next opened repository gets `id`, so ids stay unique across backends.
+    pub fn numbered(id: u64) -> Self {
+        Backend {
+            repos: Vec::new(),
+            sequence: id.saturating_sub(1),
+        }
+    }
     pub fn open(&mut self, path: &str) -> Result<RepoInfo> {
         let chosen = fs::canonicalize(path).map_err(|e| format!("Cannot open this folder: {e}"))?;
         let chosen = if chosen.is_file() {
@@ -297,6 +306,13 @@ impl Backend {
                 "--",
                 ".",
             ]),
+            None,
+            None,
+            None,
+        )?;
+        // Files created since the checkpoint are not in it; the checkpoint just saved keeps them.
+        repo.write(
+            &argv(&["clean", "-q", "-f", "-d", "--", "."]),
             None,
             None,
             None,
@@ -427,32 +443,32 @@ impl Backend {
         if !amend && !info.files.iter().any(|f| f.index != "." && !f.untracked) {
             return Err("No staged changes to commit".into());
         }
-        if let Some(level) = bump {
-            let old = info
-                .version
-                .ok_or("No version found in package.json, Cargo.toml, or VERSION.")?;
-            let new = crate::version::bump(&old, &level)?;
-            let mut paths = crate::version::apply(&repo.root, &old, &new)?;
-            crate::version::add_changelog(
-                &repo.root,
-                &new,
-                message.lines().next().unwrap_or_default().trim(),
-            )?;
-            paths.push("CHANGELOG.md".into());
-            repo.write(
-                &[argv(&["add", "--"]), paths.iter().map(|p| os(p)).collect()].concat(),
-                None,
-                None,
-                None,
-            )?;
-        }
+        // A refused commit (failing tests, a secret) must not leave the version bump behind.
+        let saved = match bump {
+            Some(level) => {
+                let saved = repo.save_version_files()?;
+                if let Err(error) = repo.bump_version(info.version.as_deref(), &level, message) {
+                    return Err(repo.restore_version_files(saved, error));
+                }
+                Some(saved)
+            }
+            None => None,
+        };
         // gitgui.amend tells the safeguard hook to compare versions with the parent, not the replaced commit.
         let args = if amend {
             argv(&["-c", "gitgui.amend=true", "commit", "--amend", "-F", "-"])
         } else {
             argv(&["commit", "-F", "-"])
         };
-        repo.write(&args, Some(message.as_bytes()), None, None)?;
+        if let Err(error) = repo.write(&args, Some(message.as_bytes()), None, None) {
+            // Only when HEAD did not move: the commit may have landed if a hook kept its output open.
+            return Err(match saved {
+                Some(saved) if repo.head()? == info.head => {
+                    repo.restore_version_files(saved, error)
+                }
+                _ => error,
+            });
+        }
         if let Some(old) = old_head {
             // Version tags still point at the replaced commit: move them by re-running the tagging hook.
             let tags = repo.version_tags(&old)?;
@@ -673,21 +689,17 @@ impl Repository {
             Err(e) => return Err(format!("Cannot prepare the checkpoint: {e}")),
         }
         let git = |args: &[&str]| -> Result<Vec<u8>> {
-            let output = Command::new(if cfg!(target_os = "linux") {
-                "/usr/bin/git"
-            } else {
-                "git"
-            })
-            .current_dir(&self.root)
-            .args(["--no-pager", "-c", "core.fsmonitor=false"])
-            .args(args)
-            .env("GIT_INDEX_FILE", &temp)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|e| format!("Could not start Git: {e}"))?;
+            let output = Command::new(git_program())
+                .current_dir(&self.root)
+                .args(["--no-pager", "-c", "core.fsmonitor=false"])
+                .args(args)
+                .env("GIT_INDEX_FILE", &temp)
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
+                .stdin(Stdio::null())
+                .output()
+                .map_err(|e| format!("Could not start Git: {e}"))?;
             if output.status.success() {
                 Ok(output.stdout)
             } else {
@@ -911,6 +923,8 @@ impl Repository {
     fn in_progress(&self) -> Result<Option<&'static str>> {
         for (name, label) in [
             ("MERGE_HEAD", "merge"),
+            // `git am` also uses rebase-apply; this file marks it as applying patches, not rebasing.
+            ("rebase-apply/applying", "git am"),
             ("rebase-merge", "rebase"),
             ("rebase-apply", "rebase"),
             ("CHERRY_PICK_HEAD", "cherry-pick"),
@@ -929,6 +943,93 @@ impl Repository {
             Err("HEAD or staged changes changed since your last review. Refresh and review them before retrying.".into())
         } else {
             Ok(info)
+        }
+    }
+    fn bump_version(&mut self, old: Option<&str>, level: &str, message: &str) -> Result<()> {
+        let old = old.ok_or("No version found in package.json, Cargo.toml, or VERSION.")?;
+        let new = crate::version::bump(old, level)?;
+        let mut paths = crate::version::apply(&self.root, old, &new)?;
+        crate::version::add_changelog(
+            &self.root,
+            &new,
+            message.lines().next().unwrap_or_default().trim(),
+        )?;
+        paths.push("CHANGELOG.md".into());
+        self.write(
+            &[argv(&["add", "--"]), paths.iter().map(|p| os(p)).collect()].concat(),
+            None,
+            None,
+            None,
+        )
+    }
+    /// Contents and index entries of every file a version bump can touch.
+    fn save_version_files(&self) -> Result<SavedFiles> {
+        let mut files = Vec::new();
+        for path in crate::version::BUMPED {
+            match fs::read(self.root.join(path)) {
+                Ok(data) => files.push((path, Some(data))),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => files.push((path, None)),
+                Err(e) => return Err(format!("Cannot read {path}: {e}")),
+            }
+        }
+        let index = read(
+            &self.root,
+            &[
+                argv(&["ls-files", "-s", "-z", "--"]),
+                argv(&crate::version::BUMPED),
+            ]
+            .concat(),
+        )?;
+        Ok((files, index))
+    }
+    /// Puts the saved version files back and returns `error`, noting any part that could not be undone.
+    fn restore_version_files(&mut self, (files, index): SavedFiles, error: String) -> String {
+        let mut failed = Vec::new();
+        for (path, data) in files {
+            let full = self.root.join(path);
+            // Leave files the bump did not touch alone, so their modification times stay put.
+            if fs::read(&full).ok() == data {
+                continue;
+            }
+            let result = match data {
+                Some(data) => fs::write(&full, data),
+                None => fs::remove_file(&full).or_else(|e| {
+                    (e.kind() == std::io::ErrorKind::NotFound)
+                        .then_some(())
+                        .ok_or(e)
+                }),
+            };
+            if let Err(e) = result {
+                failed.push(format!("{path}: {e}"));
+            }
+        }
+        let unstage = [
+            argv(&["rm", "-q", "-f", "--cached", "--ignore-unmatch", "--"]),
+            argv(&crate::version::BUMPED),
+        ]
+        .concat();
+        let restaged = self.write(&unstage, None, None, None).and_then(|_| {
+            if index.is_empty() {
+                Ok(())
+            } else {
+                self.write(
+                    &argv(&["update-index", "-z", "--index-info"]),
+                    Some(&index),
+                    None,
+                    None,
+                )
+            }
+        });
+        if let Err(e) = restaged {
+            failed.push(e);
+        }
+        if failed.is_empty() {
+            error
+        } else {
+            format!(
+                "{error}\n\nThe version bump could not be fully undone: {}",
+                failed.join("; ")
+            )
         }
     }
     /// Tags at `commit` made by the versioning post-commit hook (`vX` annotated "Version X"); tags you made stay out.

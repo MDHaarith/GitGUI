@@ -50,6 +50,18 @@ git rev-parse -q --verify "refs/tags/v$v" >/dev/null || git tag -a "v$v" -m "Ver
     )
 }
 
+/// Every file a version bump can write: the manifests and lockfiles `apply` updates, and the changelog.
+pub const BUMPED: [&str; 8] = [
+    "package.json",
+    "package-lock.json",
+    "Cargo.toml",
+    "Cargo.lock",
+    "src-tauri/Cargo.toml",
+    "src-tauri/Cargo.lock",
+    "VERSION",
+    "CHANGELOG.md",
+];
+
 fn read(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok()
 }

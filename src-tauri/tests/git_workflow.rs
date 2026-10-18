@@ -631,9 +631,16 @@ fn checkpoints_snapshot_untracked_files_and_restore_without_touching_the_index()
 
     f.write("a.txt", b"broken by AI\n");
     fs::remove_file(f.root.join("new.txt")).unwrap();
+    // Files made after the checkpoint go (the pre-restore checkpoint keeps them); ignored files stay.
+    fs::create_dir(f.root.join("later")).unwrap();
+    f.write("later/made by AI.txt", b"x\n");
+    f.write(".git/info/exclude", b"build.log\n");
+    f.write("build.log", b"log\n");
     let current = b.status(info.id).unwrap();
     b.restore_checkpoint(info.id, &list[0].oid, &current.token)
         .unwrap();
+    assert!(!f.root.join("later").exists());
+    assert!(f.root.join("build.log").exists());
     assert_eq!(fs::read_to_string(f.root.join("a.txt")).unwrap(), "two\n");
     assert_eq!(
         fs::read_to_string(f.root.join("new.txt")).unwrap(),
@@ -862,6 +869,58 @@ fn cleanup_keeps_commits_on_their_fork_point_when_the_upstream_moved() {
 }
 
 #[test]
+fn a_paused_git_am_is_named_and_aborted_as_am() {
+    let f = Fixture::new();
+    f.commit("a.txt", "base\n", "base");
+    f.commit("a.txt", "theirs\n", "theirs");
+    let patch = f.temp.path().join("change.patch");
+    let mail = cmd(&f.root, &["format-patch", "-1", "--stdout"]);
+    fs::write(&patch, mail + "\n").unwrap();
+    cmd(&f.root, &["reset", "-q", "--hard", "HEAD~1"]);
+    f.commit("a.txt", "ours\n", "ours");
+    let _ = Command::new("git")
+        .current_dir(&f.root)
+        .arg("am")
+        .arg(&patch)
+        .output()
+        .unwrap();
+    let (mut b, info) = f.open();
+    assert_eq!(info.operation.as_deref(), Some("git am"));
+    let info = b.finish_operation(info.id, true, &info.token).unwrap();
+    assert_eq!(info.operation, None);
+    assert_eq!(fs::read_to_string(f.root.join("a.txt")).unwrap(), "ours\n");
+}
+
+#[test]
+fn cleanup_refuses_commits_already_on_a_remote() {
+    use gitgui_lib::git::RebaseEdit;
+    let f = Fixture::new();
+    f.commit("file", "base\n", "base");
+    let published = f.commit("a", "a\n", "published");
+    f.commit("b", "b\n", "local");
+    cmd(
+        &f.root,
+        &["update-ref", "refs/remotes/origin/main", &published],
+    );
+    let (mut b, info) = f.open();
+    let plan = b.rebase_plan(info.id, &info.token).unwrap();
+    assert_eq!(plan.commits.len(), 2);
+    let edits = plan
+        .commits
+        .iter()
+        .map(|c| RebaseEdit {
+            oid: c.oid.clone(),
+            action: "pick".into(),
+            message: c.message.clone(),
+        })
+        .collect();
+    assert!(b
+        .clean_commits(info.id, &plan.base, edits, &info.token)
+        .unwrap_err()
+        .contains("already published"));
+}
+
+#[test]
 fn undo_commit_keeps_changes_staged_and_refuses_pushed_or_first_commits() {
     let f = Fixture::new();
     f.commit("a.txt", "one\n", "base");
@@ -1055,10 +1114,13 @@ fn stash_amend_hunks_and_discard() {
 #[test]
 fn ignored_files_are_listed_deleted_and_nested_repos_kept() {
     let f = Fixture::new();
-    f.commit(".gitignore", "target/\n.env\nvendor/\n", "ignore");
+    f.commit(".gitignore", "target/\n.env\nvendor/\nsecrets/\n", "ignore");
     fs::create_dir_all(f.root.join("target/debug")).unwrap();
     f.write("target/debug/app", b"0123456789");
+    // Secrets cannot be rebuilt, so they and folders holding them are never offered for deletion.
     f.write(".env", b"KEY=1\n");
+    fs::create_dir_all(f.root.join("secrets")).unwrap();
+    f.write("secrets/.env.local", b"KEY=2\n");
     fs::create_dir_all(f.root.join("vendor/inner")).unwrap();
     cmd(&f.root.join("vendor/inner"), &["init", "-q"]);
     let (mut b, info) = f.open();
@@ -1067,7 +1129,7 @@ fn ignored_files_are_listed_deleted_and_nested_repos_kept() {
         junk.iter()
             .map(|j| (j.path.as_str(), j.bytes))
             .collect::<Vec<_>>(),
-        [("target", 10), (".env", 6)]
+        [("target", 10)]
     );
     assert!(b
         .delete_junk(info.id, &["2e2e".into()], &info.token)
@@ -1153,6 +1215,58 @@ fn versioning_works_when_package_json_has_no_version() {
     assert_eq!(
         cmd(&f.root, &["rev-parse", "v0.2.0^{commit}"]),
         info.head.unwrap()
+    );
+}
+
+#[test]
+fn a_refused_commit_undoes_its_version_bump() {
+    let f = Fixture::new();
+    f.write("package.json", b"{\n  \"version\": \"1.0.0\"\n}\n");
+    let (mut b, info) = f.open();
+    let info = b.enable_versioning(info.id).unwrap();
+    let ids: Vec<_> = info.files.iter().map(|x| x.id.clone()).collect();
+    let info = b.stage(info.id, &ids, false, &info.token).unwrap();
+    b.commit(
+        info.id,
+        "Start",
+        &info.token,
+        false,
+        Some("patch".into()),
+        false,
+    )
+    .unwrap();
+    // Staged-but-uncommitted edits to a version file must survive the rollback too.
+    f.write("CHANGELOG.md", b"# Changelog\n\nstaged note\n");
+    cmd(&f.root, &["add", "CHANGELOG.md"]);
+    f.write("CHANGELOG.md", b"# Changelog\n\nworking note\n");
+    cmd(&f.root, &["config", "gitgui.testCommand", "exit 1"]);
+    f.write("main.js", b"1\n");
+    cmd(&f.root, &["add", "main.js"]);
+    let info = b.status(info.id).unwrap();
+    let error = b
+        .commit(
+            info.id,
+            "Add main",
+            &info.token,
+            false,
+            Some("minor".into()),
+            false,
+        )
+        .unwrap_err();
+    assert!(error.contains("tests failed"), "{error}");
+    assert!(!error.contains("could not be fully undone"), "{error}");
+    assert_eq!(b.status(info.id).unwrap().version.as_deref(), Some("1.0.1"));
+    assert_eq!(
+        fs::read_to_string(f.root.join("CHANGELOG.md")).unwrap(),
+        "# Changelog\n\nworking note\n"
+    );
+    assert_eq!(
+        cmd(&f.root, &["show", ":CHANGELOG.md"]),
+        "# Changelog\n\nstaged note"
+    );
+    assert_eq!(
+        cmd(&f.root, &["diff", "--cached", "--name-only"]),
+        "CHANGELOG.md\nmain.js"
     );
 }
 

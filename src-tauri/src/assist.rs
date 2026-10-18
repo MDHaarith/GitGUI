@@ -284,7 +284,10 @@ fn post(url: &str, headers: &str, body: &Value, name: &str) -> Result<String> {
 
 /// Runs a command-line agent in an empty folder (so it cannot edit the project) with the prompt on stdin.
 fn run_command(command: &str, prompt: &str) -> Result<Answer> {
-    let dir = std::env::temp_dir().join(format!("gitgui-agent-{}", std::process::id()));
+    // One folder per request: two requests at once must not delete each other's folder.
+    static RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("gitgui-agent-{}-{run}", std::process::id()));
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     // shortcut: `timeout` is GNU coreutils (Linux); use a watchdog thread when macOS is supported.
     let mut child = Command::new("timeout")
