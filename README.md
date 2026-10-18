@@ -155,6 +155,19 @@ npm run tauri dev
 npm run tauri build
 ```
 
+### Automatic AppImage builds
+
+Every push to GitHub builds the AppImage (`.github/workflows/appimage.yml`). Open
+the run under **Actions › AppImage** and download the `GitGUI-AppImage-<commit>`
+artifact; it holds `GitGUI_<version>_<commit>_x86_64.AppImage` and its SHA-256.
+GitHub's artifact zip drops the executable bit, so run `chmod +x` on the AppImage
+after unzipping. Artifacts are kept for 30 days; pushed `v*` tags still publish a
+draft release through `release.yml`.
+
+The same build runs locally with `npm run appimage` (output in
+`artifacts/appimage`, or pass a folder: `npm run appimage -- <folder>`). It fails
+if the bundler reports success without writing a real AppImage.
+
 The release build produces both AppImage and RPM packages. To package an existing
 release binary as an AppImage without recompiling:
 

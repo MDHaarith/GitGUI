@@ -1,0 +1,35 @@
+# Builds the Linux AppImage for every push and keeps it as a downloadable artifact
+# (Actions › this run › Artifacts). Version tags are released by release.yml instead.
+name: AppImage
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  # A newer push to the same branch replaces a build still running for an older one.
+  group: appimage-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  appimage:
+    # The oldest supported runner keeps the AppImage's glibc requirement low, so it runs on more distributions.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run appimage -- artifacts/appimage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GitGUI-AppImage-${{ github.sha }}
+          path: artifacts/appimage/
+          if-no-files-found: error
+          retention-days: 30

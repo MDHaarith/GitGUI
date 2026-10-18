@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.19.0 — 2026-10-18
+- Every push to GitHub builds the AppImage and keeps it as a downloadable Actions artifact with its SHA-256
+- `npm run appimage` runs the same build locally and fails if no real AppImage was written
+
 ## 0.18.0 — 2026-10-18
 - Each open repository has its own lock: a fetch, push, clone, or slow commit in one tab no longer blocks the others
 - A commit refused by the safeguards (failing tests, a secret) undoes its version bump and changelog entry
