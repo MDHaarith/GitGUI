@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.17.1 — 2026-10-25
+- Vibe-check notes skip build output (target/, build/, node_modules/) and list at most five files
+
 ## 0.17.0 — 2026-10-13
 - Code map clusters files by folder, fills the panel, and no longer collapses around the busiest file
 - Hovering or selecting a file in the code map highlights the files it is linked to and dims the rest

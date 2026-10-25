@@ -29,8 +29,16 @@ fn is_generated(path: &str) -> bool {
         || name.ends_with("-lock.yaml")
         || name.ends_with(".min.js")
         || name.ends_with(".map")
-        || path.starts_with("dist/")
-        || path.contains("/dist/")
+        || ["dist", "target", "build", "node_modules"]
+            .iter()
+            .any(|d| path.starts_with(&format!("{d}/")) || path.contains(&format!("/{d}/")))
+}
+// Long lists would flood the summary panel; show a few and count the rest.
+fn first_few(items: &[String]) -> String {
+    match items.len() {
+        n if n > 5 => format!("{} and {} more", items[..5].join(", "), n - 5),
+        _ => items.join(", "),
+    }
 }
 fn slug(name: &str) -> String {
     let slug: String = name
@@ -204,12 +212,12 @@ impl Backend {
             }
         }
         if !big.is_empty() {
-            notes.push(format!("Very large files: {}. AI edits big files less reliably; ask it to split them into smaller modules.", big.join(", ")));
+            notes.push(format!("Very large files: {}. AI edits big files less reliably; ask it to split them into smaller modules.", first_few(&big)));
         }
         if !deleted_tests.is_empty() {
             notes.push(format!(
                 "Tests were deleted: {}. Check the AI didn't remove tests just to make them pass.",
-                deleted_tests.join(", ")
+                first_few(&deleted_tests)
             ));
         }
         let old = optional(&repo.root, &["show", "HEAD:package.json"])?.map(|v| text(&v));
@@ -616,8 +624,13 @@ mod tests {
         assert!(
             is_generated("package-lock.json")
                 && is_generated("src-tauri/Cargo.lock")
+                && is_generated("server/target/debug/deps/liba.rlib")
+                && is_generated("node_modules/x/index.js")
                 && !is_generated("src/main.ts")
         );
+        let many: Vec<String> = (0..8).map(|i| i.to_string()).collect();
+        assert_eq!(first_few(&many), "0, 1, 2, 3, 4 and 3 more");
+        assert_eq!(first_few(&many[..2]), "0, 1");
         let deps = dependencies(Some(
             r#"{"dependencies":{"a":"1"},"devDependencies":{"b":"2"}}"#,
         ));
