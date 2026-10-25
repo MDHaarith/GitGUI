@@ -986,7 +986,7 @@ function renderFiles() {
         check.addEventListener('change', () => { if (check.checked) set.add(file.id); else set.delete(file.id); const action = list.querySelector<HTMLButtonElement>('[data-stage-group="' + (staged ? 'staged' : 'unstaged') + '"]'); if (action) action.textContent = (staged ? 'Unstage' : 'Stage') + (set.size ? ' selected' : ' all'); }); row.append(check);
       }
       const kind = document.createElement('span'); kind.className = 'file-kind'; kind.textContent = file.submodule ? 'S' : file.conflicted ? 'U' : file.untracked ? '?' : staged ? file.index : file.worktree; row.append(kind);
-      const nameButton = document.createElement('button'); nameButton.type = 'button'; nameButton.className = 'file-name'; nameButton.dataset.key = (staged ? 's' : 'u') + file.id; nameButton.textContent = (file.oldPath ? file.oldPath + ' → ' : '') + file.path; nameButton.title = nameButton.textContent;
+      const nameButton = document.createElement('button'); nameButton.type = 'button'; nameButton.className = 'file-name'; nameButton.dataset.key = (staged ? 's' : 'u') + file.id; nameButton.title = (file.oldPath ? file.oldPath + ' → ' : '') + file.path; nameButton.textContent = '\u200e' + nameButton.title + '\u200e';
       nameButton.addEventListener('click', () => { void showWorkingFile(file, !!staged); }); row.append(nameButton);
       if (staged === null) {
         const resolve = document.createElement('button'); resolve.type = 'button'; resolve.textContent = 'Resolve…'; resolve.title = 'Pick yours, theirs, or both for each conflicting block'; resolve.disabled = busy;

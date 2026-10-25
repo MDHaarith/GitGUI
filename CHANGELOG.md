@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.18.2 — 2026-10-25
+- Working changes list keeps file names readable: long paths are cut at the start, and row buttons no longer take space while hidden
+
 ## 0.18.1 — 2026-10-25
 - Builds and updates work when started from another AppImage (clears TARGET_APPIMAGE and REDIRECT_APPIMAGE)
 
