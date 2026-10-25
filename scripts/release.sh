@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 version=$(node -p 'require("./package.json").version')
 bundle=src-tauri/target/release/bundle
 git rev-parse -q --verify "refs/tags/v$version" >/dev/null || { echo "No tag v$version; commit the version bump first." >&2; exit 1; }
-env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE -u LD_LIBRARY_PATH npm run tauri -- build --bundles appimage rpm
+env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE -u LD_LIBRARY_PATH -u TARGET_APPIMAGE -u REDIRECT_APPIMAGE -u APPIMAGE_SILENT_INSTALL npm run tauri -- build --bundles appimage rpm
 image=$bundle/appimage/GitGUI_${version}_amd64.AppImage
 rpm=$bundle/rpm/GitGUI-${version}-1.x86_64.rpm
 [ -f "$image" ] && [ -f "$rpm" ] || { echo "Build did not produce $image and $rpm" >&2; exit 1; }

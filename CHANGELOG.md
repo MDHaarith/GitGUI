@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.18.1 — 2026-10-25
+- Builds and updates work when started from another AppImage (clears TARGET_APPIMAGE and REDIRECT_APPIMAGE)
+
 ## 0.18.0 — 2026-10-25
 - Update notice has Install and restart: downloads the new AppImage, installs it in ~/Applications/GitGUI and relaunches
 - Releases are built locally with npm run release; the GitHub workflow only runs by hand

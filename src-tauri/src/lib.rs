@@ -786,7 +786,17 @@ fn open_release(url: String) -> git::Result<()> {
 /// Child processes must not inherit the running AppImage's launcher variables.
 fn clean_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
     let mut command = std::process::Command::new(program);
-    for var in ["APPIMAGE", "APPDIR", "ARGV0", "OWD", "LD_LIBRARY_PATH", "LD_PRELOAD"] {
+    for var in [
+        "APPIMAGE",
+        "APPDIR",
+        "ARGV0",
+        "OWD",
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "TARGET_APPIMAGE",
+        "REDIRECT_APPIMAGE",
+        "APPIMAGE_SILENT_INSTALL",
+    ] {
         command.env_remove(var);
     }
     command
@@ -802,7 +812,10 @@ async fn install_update(version: String, app: tauri::AppHandle) -> git::Result<(
     let current = apps.join("current");
     // shortcut: only the ~/Applications/GitGUI layout from install.sh updates in place; other installs use the release page.
     if !cfg!(target_os = "linux") || !current.exists() {
-        return Err("This GitGUI was not installed with `npm run install:app`; use Download instead.".into());
+        return Err(
+            "This GitGUI was not installed with `npm run install:app`; use Download instead."
+                .into(),
+        );
     }
     let running = std::fs::read_link(&current).ok();
     let target = apps.join(&version);
@@ -813,13 +826,23 @@ async fn install_update(version: String, app: tauri::AppHandle) -> git::Result<(
         let image = target.join(format!("GitGUI_{version}_amd64.AppImage"));
         let url = format!("{RELEASES}/download/v{version}/GitGUI_{version}_amd64.AppImage");
         let ok = |c: &mut std::process::Command| c.status().map(|s| s.success()).unwrap_or(false);
-        if !ok(clean_command("curl").args(["-fsSL", "--max-time", "900", "-o"]).arg(&image).arg(&url)) {
+        if !ok(clean_command("curl")
+            .args(["-fsSL", "--max-time", "900", "-o"])
+            .arg(&image)
+            .arg(&url))
+        {
             let _ = std::fs::remove_dir_all(&target);
-            return Err(format!("Could not download {url}. Check your connection and try again."));
+            return Err(format!(
+                "Could not download {url}. Check your connection and try again."
+            ));
         }
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&image, std::fs::Permissions::from_mode(0o755)).map_err(fail)?;
-        if !ok(clean_command(&image).arg("--appimage-extract").current_dir(&target).stdout(std::process::Stdio::null())) {
+        if !ok(clean_command(&image)
+            .arg("--appimage-extract")
+            .current_dir(&target)
+            .stdout(std::process::Stdio::null()))
+        {
             let _ = std::fs::remove_dir_all(&target);
             return Err("Could not unpack the downloaded AppImage.".into());
         }

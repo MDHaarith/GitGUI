@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 version=$(node -p 'require("./package.json").version')
 bundle=src-tauri/target/release/bundle
 # AppImage-based IDEs leak launcher variables that break packaging and the launched app.
-clean="env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE -u LD_LIBRARY_PATH"
+clean="env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE -u LD_LIBRARY_PATH -u TARGET_APPIMAGE -u REDIRECT_APPIMAGE -u APPIMAGE_SILENT_INSTALL"
 
 case "$(uname -s)" in
 Linux)
