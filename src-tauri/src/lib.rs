@@ -783,6 +783,72 @@ fn open_release(url: String) -> git::Result<()> {
         .map_err(|e| format!("Cannot open the browser: {e}. Visit {url}"))
 }
 
+/// Child processes must not inherit the running AppImage's launcher variables.
+fn clean_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let mut command = std::process::Command::new(program);
+    for var in ["APPIMAGE", "APPDIR", "ARGV0", "OWD", "LD_LIBRARY_PATH", "LD_PRELOAD"] {
+        command.env_remove(var);
+    }
+    command
+}
+/// Downloads release `version`, installs it the way `npm run install:app` does, and restarts into it.
+#[tauri::command]
+async fn install_update(version: String, app: tauri::AppHandle) -> git::Result<()> {
+    if version.is_empty() || !version.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        return Err("Invalid version.".into());
+    }
+    let apps = std::path::PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set.")?)
+        .join("Applications/GitGUI");
+    let current = apps.join("current");
+    // shortcut: only the ~/Applications/GitGUI layout from install.sh updates in place; other installs use the release page.
+    if !cfg!(target_os = "linux") || !current.exists() {
+        return Err("This GitGUI was not installed with `npm run install:app`; use Download instead.".into());
+    }
+    let running = std::fs::read_link(&current).ok();
+    let target = apps.join(&version);
+    tauri::async_runtime::spawn_blocking(move || -> git::Result<()> {
+        let fail = |e: std::io::Error| format!("Update failed: {e}");
+        let _ = std::fs::remove_dir_all(&target);
+        std::fs::create_dir_all(&target).map_err(fail)?;
+        let image = target.join(format!("GitGUI_{version}_amd64.AppImage"));
+        let url = format!("{RELEASES}/download/v{version}/GitGUI_{version}_amd64.AppImage");
+        let ok = |c: &mut std::process::Command| c.status().map(|s| s.success()).unwrap_or(false);
+        if !ok(clean_command("curl").args(["-fsSL", "--max-time", "900", "-o"]).arg(&image).arg(&url)) {
+            let _ = std::fs::remove_dir_all(&target);
+            return Err(format!("Could not download {url}. Check your connection and try again."));
+        }
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&image, std::fs::Permissions::from_mode(0o755)).map_err(fail)?;
+        if !ok(clean_command(&image).arg("--appimage-extract").current_dir(&target).stdout(std::process::Stdio::null())) {
+            let _ = std::fs::remove_dir_all(&target);
+            return Err("Could not unpack the downloaded AppImage.".into());
+        }
+        std::fs::rename(target.join("squashfs-root"), target.join("AppDir")).map_err(fail)?;
+        // Swap the link atomically so a failure never leaves GitGUI without a `current` version.
+        let link = apps.join(".current-new");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(target.join("AppDir"), &link).map_err(fail)?;
+        std::fs::rename(&link, apps.join("current")).map_err(fail)?;
+        // Remove older versions, except the one still running; the next update removes that.
+        for entry in std::fs::read_dir(&apps).map_err(fail)?.flatten() {
+            let path = entry.path();
+            let keep = path == target || running.as_ref().is_some_and(|r| r.starts_with(&path));
+            if !keep && entry.file_name() != "current" && path.is_dir() {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Update failed: {e}"))??;
+    clean_command(current.join("AppRun"))
+        .current_dir(&current)
+        .spawn()
+        .map_err(|e| format!("Installed, but could not restart: {e}. Reopen GitGUI."))?;
+    app.exit(0);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -857,7 +923,8 @@ pub fn run() {
             delete_junk,
             compact_repository,
             latest_release,
-            open_release
+            open_release,
+            install_update
         ])
         .run(tauri::generate_context!())
         .expect("Could not run GitGUI");

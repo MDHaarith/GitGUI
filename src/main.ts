@@ -678,9 +678,11 @@ function renderHints(state: string[], warnings: string[]) {
     const text = document.createElement('span'); text.textContent = `GitGUI ${version} is available.`;
     const download = document.createElement('button'); download.type = 'button'; download.className = 'chip hint-action'; download.textContent = 'Download';
     download.onclick = () => { void api.openRelease(url).catch(report); };
+    const install = document.createElement('button'); install.type = 'button'; install.className = 'chip hint-action'; install.textContent = 'Install and restart';
+    install.onclick = () => { void run(`Installing GitGUI ${version}…`, async () => { await api.installUpdate(version); }); };
     const close = document.createElement('button'); close.type = 'button'; close.textContent = '×'; close.setAttribute('aria-label', 'Dismiss this tip');
     close.onclick = () => { dismissedHints.add('update:' + version); save('dismissedHints', JSON.stringify([...dismissedHints])); renderInfo(); };
-    item.append(text, download, close); items.unshift(item);
+    item.append(text, install, download, close); items.unshift(item);
   }
   get('git-hint').replaceChildren(...items); get('git-hint').hidden = !items.length;
 }

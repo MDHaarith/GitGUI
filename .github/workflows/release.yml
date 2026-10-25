@@ -1,9 +1,8 @@
-# Builds the Linux installers for every pushed version tag and attaches them to a draft GitHub release.
+# Releases are built on the maintainer's laptop (scripts/release.sh); run this by hand only as a fallback.
 # Linux only: the app uses Unix APIs and bundles AppImage and rpm.
 name: Release
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:

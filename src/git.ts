@@ -93,4 +93,5 @@ export const api = {
   compact: (repoId: number) => invoke<RepoInfo>('compact_repository', { repoId }),
   latestRelease: () => invoke<[string, string] | null>('latest_release'),
   openRelease: (url: string) => invoke<null>('open_release', { url }),
+  installUpdate: (version: string) => invoke<null>('install_update', { version }),
 };

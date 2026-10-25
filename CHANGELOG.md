@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.0 — 2026-10-25
+- Update notice has Install and restart: downloads the new AppImage, installs it in ~/Applications/GitGUI and relaunches
+- Releases are built locally with npm run release; the GitHub workflow only runs by hand
+
 ## 0.17.1 — 2026-10-25
 - Vibe-check notes skip build output (target/, build/, node_modules/) and list at most five files
 
