@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.28.0 — 2026-10-26
+- Undo (Ctrl/Cmd+Z or the status notice) reverses the last action in each repository tab: commits, deleted branches, file changes and staging; newer work is checkpointed first and pushed commits are never removed
+- Time machine lists where HEAD and the current branch have been, with previews, and restores one after confirming
+- Line history: select lines in a diff or blame to see the commits that changed them
+- Blame shades lines by commit age, with a legend
+
 ## 0.27.0 — 2026-10-26
 - AI assistant panel: chat about the repository; it starts read-only, every change it makes needs your Allow and saves a checkpoint first
 - More AI providers: Gemini, Mistral, xAI, LM Studio and Gemini CLI, with default models filled in

@@ -1,3 +1,5 @@
+import { historyMarkup } from './undo-history.ts';
+
 // The app's static markup; main.ts wires behaviour to these IDs.
 export const markup = `
   <svg class="chrome-symbols" aria-hidden="true"><defs>
@@ -18,7 +20,7 @@ export const markup = `
     <span class="brand" data-tauri-drag-region><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v10a4 4 0 0 0 4 4h1m5-14v2a5 5 0 0 1-5 5H7"/><circle cx="7" cy="5" r="2.5"/><circle cx="17" cy="5" r="2.5"/><circle cx="15" cy="19" r="2.5"/></svg>GitGUI<span class="app-version" id="app-version" hidden></span></span>
     <button class="secondary" id="open-repo">Open repository</button><button class="secondary" id="init-repo">Init repository</button><button class="secondary" id="clone-repo" title="Download a project from GitHub or another server">Clone</button>
     <select id="recent-repos" aria-label="Repository"><option value="">Recent repositories</option></select>
-    <span class="toolbar-status" data-tauri-drag-region><span id="status" role="status" aria-live="polite">Ready</span><span id="operation-feedback" hidden><progress id="operation-progress" aria-label="Git operation progress" max="100"></progress><span id="operation-elapsed"></span></span></span>
+    <span class="toolbar-status" data-tauri-drag-region><span id="status" role="status" aria-live="polite">Ready</span><span id="undo-notice" hidden><span id="undo-action-label"></span><button id="undo-action" type="button" hidden>Undo</button></span><span id="operation-feedback" hidden><progress id="operation-progress" aria-label="Git operation progress" max="100"></progress><span id="operation-elapsed"></span></span></span>
     <div class="toolbar-actions"><button id="publish" data-repo hidden title="Back up this project online: a new private GitHub repository or one you already made">Publish</button><button aria-label="Fetch" id="fetch" data-repo data-tip="Fetch: download news from the server without changing your files"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-fetch"/></svg><span class="label">Fetch</span></button><button aria-label="Pull" id="pull" data-repo data-tip="Pull: download the server's new commits into your branch"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-pull"/></svg><span class="label">Pull</span><span class="count" id="behind-count" hidden></span></button><button aria-label="Push" id="push" data-repo data-tip="Push: upload your commits to the server (your backup)"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-push"/></svg><span class="label">Push</span><span class="count" id="ahead-count" hidden></span></button>
     <button aria-label="Refresh" id="refresh" data-repo><svg class="chrome-icon" id="refresh-icon" aria-hidden="true"><use href="#chrome-refresh"/></svg><span class="label">Refresh</span></button><button id="terminal-toggle" data-repo aria-expanded="false" title="Terminal and Git output (Ctrl+&#96;)">Terminal</button></div>
     <div class="window-controls" id="window-controls" hidden><button id="window-minimize" aria-label="Minimize window"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-chevron"/></svg></button><button id="window-maximize" aria-label="Maximize or restore window"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-diamond"/></svg></button><button id="window-close" aria-label="Close window"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-close"/></svg></button></div>
@@ -40,6 +42,7 @@ export const markup = `
       <div class="menu-list" id="tools-menu" role="menu" hidden>
         <button role="menuitem" id="github-button" title="Pull requests, reviews, issues, Actions, releases and notifications">GitHub hub</button>
         <button role="menuitem" id="session-button" data-repo title="See what changed since your last checkpoint or commit, riskiest first, and undo single files">Review AI changes</button>
+        <button role="menuitem" id="time-machine-button" data-repo>Time machine</button>
         <button role="menuitem" id="stash-button" data-repo title="Put unfinished changes aside, then bring them back later">Stashes</button>
         <button role="menuitem" id="rebase-button" data-repo title="Reorder, combine, edit, or remove unpublished commits">Clean up commits</button>
         <button role="menuitem" id="create-pr-button" data-repo hidden>Create pull request</button>
@@ -199,6 +202,7 @@ export const markup = `
     </dl>
     <h3 class="help-heading">Keyboard</h3>
     <dl class="glossary">
+      <dt>Ctrl+Z · ⌘Z</dt><dd>Undo the last GitGUI action outside text fields.</dd>
       <dt>Ctrl+O · Ctrl+R</dt><dd>Open a repository · refresh.</dd>
       <dt>Ctrl+F</dt><dd>Search history; Enter and Shift+Enter jump between matches.</dd>
       <dt>↑ ↓ · Space</dt><dd>In Changes: move between files · stage or unstage the file.</dd>
@@ -268,4 +272,5 @@ export const markup = `
     <div class="dialog-head"><h2 id="remote-title">Choose remote</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
     <form id="remote-form" class="form-grid"><label for="remote-select">Remote</label><select id="remote-select"></select><p id="remote-url"></p><p id="remote-note"></p><button class="primary" id="remote-submit" type="submit">Continue</button></form>
   </dialog>
+  ${historyMarkup}
 `;

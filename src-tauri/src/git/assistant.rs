@@ -143,14 +143,16 @@ impl Backend {
                     .collect::<Vec<_>>();
                 encoded(self.stage(id, &ids, false, token)?)
             }
-            "commit" => encoded(self.commit(
-                id,
-                argument(input, "message")?,
-                token,
-                false,
-                input["bump"].as_str().map(str::to_owned),
-                false,
-            )?),
+            "commit" => encoded(self.with_undo(id, "Assistant commit", |b| {
+                b.commit(
+                    id,
+                    argument(input, "message")?,
+                    token,
+                    false,
+                    input["bump"].as_str().map(str::to_owned),
+                    false,
+                )
+            })?),
             "create_branch" => {
                 encoded(self.create_branch(id, argument(input, "name")?, None, token)?)
             }

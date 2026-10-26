@@ -5,6 +5,7 @@ pub mod platform;
 pub mod runner;
 pub mod terminal;
 mod terminal_commands;
+mod undo_history;
 pub mod version;
 use git::{
     Backend, BlameLine, Checkpoint, CommitDetails, FileCommit, GraphPage, Junk, Preview, Progress,
@@ -122,7 +123,9 @@ async fn restore_checkpoint(
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
-        b.restore_checkpoint(repo_id, &oid, &token)
+        b.with_undo(repo_id, "Restore checkpoint", |b| {
+            b.restore_checkpoint(repo_id, &oid, &token)
+        })
     })
     .await
 }
@@ -206,15 +209,17 @@ async fn create_commit(
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
-        b.commit_with_options(
-            repo_id,
-            &message,
-            &token,
-            detached_ok,
-            bump,
-            amend,
-            options.unwrap_or_default(),
-        )
+        b.with_undo(repo_id, if amend { "Amend" } else { "Commit" }, |b| {
+            b.commit_with_options(
+                repo_id,
+                &message,
+                &token,
+                detached_ok,
+                bump,
+                amend,
+                options.unwrap_or_default(),
+            )
+        })
     })
     .await
 }
@@ -265,7 +270,9 @@ async fn delete_branch(
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
-        b.delete_branch(repo_id, &reference_id, force, &token)
+        b.with_undo(repo_id, "Delete branch", |b| {
+            b.delete_branch(repo_id, &reference_id, force, &token)
+        })
     })
     .await
 }
@@ -335,7 +342,12 @@ async fn undo_files(
     token: String,
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
-    task(state, true, move |b| b.undo_files(repo_id, &paths, &token)).await
+    task(state, true, move |b| {
+        b.with_undo(repo_id, "Undo files", |b| {
+            b.undo_files(repo_id, &paths, &token)
+        })
+    })
+    .await
 }
 #[tauri::command]
 async fn get_health(repo_id: u64, state: State<'_, AppState>) -> git::Result<Vec<String>> {
@@ -386,7 +398,9 @@ async fn finish_operation(
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
-        b.finish_operation(repo_id, abort, &token)
+        b.with_undo(repo_id, "Finish operation", |b| {
+            b.finish_operation(repo_id, abort, &token)
+        })
     })
     .await
 }
@@ -396,7 +410,12 @@ async fn undo_commit(
     token: String,
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
-    task(state, true, move |b| b.undo_commit(repo_id, &token)).await
+    task(state, true, move |b| {
+        b.with_undo(repo_id, "Undo last commit", |b| {
+            b.undo_commit(repo_id, &token)
+        })
+    })
+    .await
 }
 #[tauri::command]
 async fn publish(
@@ -625,7 +644,12 @@ async fn discard_files(
     token: String,
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
-    task(state, true, move |b| b.discard(repo_id, &file_ids, &token)).await
+    task(state, true, move |b| {
+        b.with_undo(repo_id, "Discard", |b| {
+            b.discard(repo_id, &file_ids, &token)
+        })
+    })
+    .await
 }
 #[tauri::command]
 async fn get_conflict(
@@ -673,7 +697,9 @@ async fn merge_ref(
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
-        b.merge_ref(repo_id, &reference_id, &token)
+        b.with_undo(repo_id, "Merge", |b| {
+            b.merge_ref(repo_id, &reference_id, &token)
+        })
     })
     .await
 }
@@ -686,7 +712,9 @@ async fn apply_commit(
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
-        b.apply_commit(repo_id, &oid, revert, &token)
+        b.with_undo(repo_id, "Cherry-pick / revert", |b| {
+            b.apply_commit(repo_id, &oid, revert, &token)
+        })
     })
     .await
 }
@@ -725,7 +753,9 @@ async fn reset_commit(
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
-        b.reset_commit(repo_id, &oid, &mode, &token)
+        b.with_undo(repo_id, "Reset", |b| {
+            b.reset_commit(repo_id, &oid, &mode, &token)
+        })
     })
     .await
 }
@@ -809,7 +839,9 @@ async fn clean_commits(
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
-        b.clean_commits(repo_id, &base, commits, &token)
+        b.with_undo(repo_id, "Clean up commits", |b| {
+            b.clean_commits(repo_id, &base, commits, &token)
+        })
     })
     .await
 }
@@ -971,6 +1003,11 @@ pub fn run() {
             list_checkpoints,
             save_checkpoint,
             restore_checkpoint,
+            undo_history::undo_action,
+            undo_history::undo_label,
+            undo_history::get_reflog,
+            undo_history::restore_reflog,
+            undo_history::line_history,
             get_status,
             get_graph,
             get_commit,

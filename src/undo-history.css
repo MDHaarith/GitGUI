@@ -1,0 +1,13 @@
+#undo-notice { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+#undo-action-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+#undo-action { color: var(--accent-hover); flex-shrink: 0; height: 28px; padding: 4px 8px; }
+#reflog-list { max-height: 240px; overflow: auto; border-block: 1px solid var(--edge); }
+.reflog-entry { display: block; width: 100%; height: auto; min-height: 40px; text-align: left; font-size: 13px; font-weight: 400; overflow-wrap: anywhere; }
+.reflog-entry[aria-pressed="true"] { background: var(--surface-3); color: var(--ink); }
+.line-history-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0; font-size: 12px; }
+.line-history-controls input { width: 88px; padding: 4px 8px; }
+.line-history-controls button { height: 32px; padding: 4px 8px; background: var(--surface-1); border-color: var(--edge); font-size: 12px; }
+.blame-list .blame-heat { display: flex; align-items: baseline; gap: 8px; color: var(--ink-muted); border-left: 2px solid var(--accent); padding: 2px 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.blame-legend { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.blame-legend span { padding: 4px 8px; border-radius: 4px; color: var(--ink-muted); }
+@media (pointer: coarse) { .line-history-controls input, .line-history-controls button, #undo-action { min-height: 44px; } }

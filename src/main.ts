@@ -15,6 +15,7 @@ import { forgetRecent, isUnavailable, parseRecent, rememberRecent } from './rece
 import { summaryHint } from './commit.ts';
 import { wireLineStaging } from './line-staging.ts';
 import { folderParents } from './file-tree.ts';
+import { wireHistory } from './undo-history.ts';
 import { markup } from './template.ts';
 import { wireTerminalPanel } from './terminal.ts';
 import { PRESETS, STARTER_RULES } from './ai.ts';
@@ -35,7 +36,7 @@ const repoDropdown = wireDropdown(select('recent-repos'), () => button('open-rep
 
 let repo: RepoInfo | null = null;
 const terminalPanel = wireTerminalPanel();
-const assistant = mountAssistant(() => repo, () => refresh(), reply => recordUsage({ ...reply, text: reply.message.text }), () => { void showKeyForm(); }, (target, preview) => previewInto(target, preview));
+const assistant = mountAssistant(() => repo, async () => { await refresh(); await undoHistory.refreshUndo(); }, reply => recordUsage({ ...reply, text: reply.message.text }), () => { void showKeyForm(); }, (target, preview) => previewInto(target, preview));
 let openRepos: RepoInfo[] = [];
 let page: GraphPage | null = null;
 let layout: Layout = layoutHistory([]);
@@ -58,6 +59,7 @@ let renderedSelection: string | null = null;
 let searchMatches: string[] = [];
 let operationSequence = 0;
 let operationLabel = '';
+const undoHistory = wireHistory({ current: () => repo, busy: () => busy, run, mutate, preview: (id, preview) => previewInto(id, preview) });
 
 function stored(key: string) { try { return localStorage.getItem(key); } catch { return null; } }
 function save(key: string, value: string) { try { localStorage.setItem(key, value); } catch { /* Storage may be unavailable; the current draft remains in memory. */ } }
@@ -161,6 +163,7 @@ function updateControls() {
   renderRepoTabs();
   scopeDropdown.sync(); repoDropdown.sync();
   get('app').setAttribute('aria-busy', String(busy));
+  undoHistory.updateControls();
 }
 async function run(label: string, action: () => Promise<void>, mutating = false) {
   if (busy) return;
@@ -186,6 +189,7 @@ async function run(label: string, action: () => Promise<void>, mutating = false)
     }
   } finally {
     window.clearInterval(timer); get('operation-feedback').hidden = true;
+    await undoHistory.refreshUndo();
     busy = false; writing = false; get('history').inert = false; if (repo) renderFiles(); updateControls();
     if (!get('details').hidden && selected && details?.oid !== selected) void openDetails();
   }
@@ -648,7 +652,11 @@ async function loadDetailDiff(request = ++detailRequest) {
   get('details').setAttribute('aria-busy', 'true'); get('detail-diff').textContent = 'Reading diff…'; updateDetailControls();
   try {
     const preview = await readDetail(api.commitDiff(id, oid, details.parent, select('detail-file').value || null));
-    if (repo?.id === id && details?.oid === oid && request === detailRequest) previewInto('detail-diff', preview);
+    if (repo?.id === id && details?.oid === oid && request === detailRequest) {
+      previewInto('detail-diff', preview);
+      const file = details.files.find(item => item.id === select('detail-file').value);
+      undoHistory.bindDiff('detail-diff', file && file.status !== 'D' ? { repoId: id, fileId: file.id, commit: oid, path: file.path, side: 'new' } : null);
+    }
   } catch (error) {
     if (request === detailRequest) { get('detail-diff').textContent = 'Unable to load this diff. Select the file again to retry.'; report(error); }
   } finally {
@@ -1104,11 +1112,13 @@ async function openFileHistory(fileId: string, commit: string | null, path: stri
     await renderFileBlame(id, fileId, commit);
   });
 }
+let blameRequest = 0;
 async function renderFileBlame(id: number, fileId: string, commit: string | null) {
+  const request = ++blameRequest; undoHistory.bindDiff('file-blame-list', null);
   const list = get('file-blame-list'); list.textContent = 'Loading line history…';
   try {
     const lines = await api.fileBlame(id, fileId, commit);
-    if (repo?.id !== id || !dialog('file-history-dialog').open) return;
+    if (request !== blameRequest || repo?.id !== id || !dialog('file-history-dialog').open) return;
     list.replaceChildren(); let previous = '';
     lines.forEach((line, index) => {
       const row = document.createElement('div'); row.className = line.oid === previous ? 'muted' : 'row'; previous = line.oid;
@@ -1120,6 +1130,7 @@ async function renderFileBlame(id: number, fileId: string, commit: string | null
     });
     if (lines.length === 5000) { const note = document.createElement('p'); note.textContent = 'Showing the first 5,000 lines.'; list.append(note); }
     if (!lines.length) list.textContent = 'No line history available.';
+    undoHistory.heatmap(id, fileId, commit, get('file-history-title').textContent?.replace(/^History · /, '') ?? '', lines);
   } catch (error) { list.textContent = error instanceof Error ? error.message : String(error); }
 }
 
@@ -1169,6 +1180,7 @@ async function showWorkingFile(file: FileInfo, staged: boolean) {
 function clearWorkingPreview() {
   workingFile = null; workingRequest++; get('working-diff').replaceChildren();
   get('working-path').textContent = 'Select a file to review its diff.';
+  undoHistory.bindDiff('working-diff', null);
 }
 async function refreshWorkingPreview(quiet = false) {
   const selection = workingFile;
@@ -1186,7 +1198,10 @@ async function refreshWorkingPreview(quiet = false) {
   }
   const hunks = !file.untracked && !file.oldId && !file.submodule;
   const selectable = !preview.binary && !preview.truncated && !file.oldId && !file.submodule;
-  if (repo?.id === id && request === workingRequest) previewInto('working-diff', preview, hunks ? (hunk, header) => { void stageHunk(file, selection.staged, hunk, header); } : undefined, selection.staged ? 'Unstage hunk' : 'Stage hunk', selectable ? lines => { void stageLines(file, selection.staged, lines, preview.text); } : undefined);
+  if (repo?.id === id && request === workingRequest) {
+    previewInto('working-diff', preview, hunks ? (hunk, header) => { void stageHunk(file, selection.staged, hunk, header); } : undefined, selection.staged ? 'Unstage hunk' : 'Stage hunk', selectable ? lines => { void stageLines(file, selection.staged, lines, preview.text); } : undefined);
+    undoHistory.bindDiff('working-diff', !file.untracked && !file.oldId && !file.submodule ? { repoId: id, fileId: file.id, commit: null, path: file.path, side: 'old', index: !selection.staged && file.index !== '.' } : null);
+  }
 }
 async function stageHunk(file: FileInfo, staged: boolean, hunk: number, header: string) {
   if (!repo || busy) return;

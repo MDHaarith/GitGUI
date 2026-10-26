@@ -419,3 +419,121 @@ test('assistant copies Markdown and settings show key presence and storage witho
   await tab.evaluate(() => document.getElementById('ai-dialog').close());
   await tab.click('#assistant-panel [data-close]');
 });
+
+test('undo notice and shortcuts preserve text editing and call the current repository', async () => {
+  await tab.evaluate(repo => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    window.undoCalls = []; window.undoAvailable = true;
+    window.restoreUndoInvoke = () => { window.__TAURI_INTERNALS__.invoke = original; };
+    window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === 'undo_label') return window.undoAvailable ? 'Commit' : null;
+      if (cmd === 'undo_action') { window.undoCalls.push(args); window.undoAvailable = false; return structuredClone(repo); }
+      return original(cmd, args);
+    };
+  }, repo);
+  try {
+    await tab.click('#refresh'); await tab.locator('#undo-action:not([hidden]):enabled').waitFor();
+    assert.equal(await tab.locator('#undo-action-label').textContent(), 'Last action: Commit');
+    for (const target of ['#summary', '#body', '#history-search']) {
+      await tab.locator(target).focus(); await tab.keyboard.press('Control+z');
+    }
+    await tab.evaluate(() => {
+      const editor = document.createElement('div'); editor.contentEditable = 'true'; editor.id = 'undo-editor'; document.body.append(editor); editor.focus();
+    });
+    await tab.keyboard.press('Meta+z');
+    assert.equal(await tab.evaluate(() => window.undoCalls.length), 0);
+    await tab.evaluate(() => document.getElementById('undo-editor').remove());
+    await tab.locator('#refresh').focus(); await tab.keyboard.press('Control+z');
+    await tab.locator('#undo-action[hidden]').waitFor({ state: 'attached' });
+    assert.deepEqual(await tab.evaluate(() => window.undoCalls), [{ repoId: 1, token: 't' }]);
+    await tab.evaluate(() => { window.undoAvailable = true; });
+    await tab.click('#refresh'); await tab.locator('#undo-action:not([hidden]):enabled').waitFor();
+    await tab.keyboard.press('Meta+z');
+    await tab.waitForFunction(() => window.undoCalls.length === 2);
+    await tab.waitForFunction(() => !document.querySelector('#operation-feedback:not([hidden])'));
+  } finally { await tab.evaluate(() => window.restoreUndoInvoke()); }
+});
+
+test('time machine previews the commit and diff and confirms restoration', async () => {
+  await tab.evaluate(({ repo, diff }) => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    window.timeMachineCalls = [];
+    window.restoreTimeMachineInvoke = () => { window.__TAURI_INTERNALS__.invoke = original; };
+    window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === 'get_reflog') return [{ oid: '2'.repeat(40), selector: 'HEAD@{1}', timestamp: 1700000000, action: 'commit: Earlier', message: 'Earlier work', source: 'HEAD' }];
+      if (cmd === 'get_commit') return { oid: '2'.repeat(40), parents: ['1'.repeat(40)], parent: '1'.repeat(40), author: 'Dev', timestamp: 1700000000, message: 'Earlier work', files: [], shallow: false };
+      if (cmd === 'get_commit_diff') return { text: diff, truncated: false, binary: false };
+      if (cmd === 'plugin:dialog|message') { window.timeMachineCalls.push({ cmd, args }); return 'Ok'; }
+      if (cmd === 'restore_reflog') { window.timeMachineCalls.push({ cmd, args }); return structuredClone(repo); }
+      return original(cmd, args);
+    };
+  }, { repo, diff });
+  try {
+    await tab.click('#tools-button'); await tab.click('#time-machine-button');
+    await tab.locator('#reflog-list button').click();
+    await tab.locator('#reflog-restore:enabled').waitFor();
+    assert.match(await tab.locator('#reflog-message').textContent(), /Earlier work/);
+    assert.ok(await tab.locator('#reflog-diff .diff-line.added').count() > 0);
+    await tab.click('#reflog-restore');
+    await tab.waitForFunction(() => window.timeMachineCalls.some(call => call.cmd === 'restore_reflog'));
+    const calls = await tab.evaluate(() => window.timeMachineCalls);
+    assert.deepEqual(calls.map(call => call.cmd), ['plugin:dialog|message', 'restore_reflog']);
+    assert.deepEqual(calls[1].args, { repoId: 1, oid: '2'.repeat(40), token: 't' });
+    await tab.waitForFunction(() => !document.querySelector('#operation-feedback:not([hidden])'));
+  } finally { await tab.evaluate(() => { document.getElementById('time-machine-dialog').close(); window.restoreTimeMachineInvoke(); }); }
+});
+
+test('line history selects a diff range without disabling line staging', async () => {
+  await tab.evaluate(diff => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    window.lineHistoryCalls = [];
+    window.restoreLineHistoryInvoke = () => { window.__TAURI_INTERNALS__.invoke = original; };
+    window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === 'line_history') { window.lineHistoryCalls.push(args); return { text: 'commit history\n' + diff, truncated: false, binary: false }; }
+      return original(cmd, args);
+    };
+  }, diff);
+  try {
+    if (!await tab.locator('#changes').isVisible()) await tab.click('#changes-button');
+    await tab.locator('button.file-name', { hasText: 'README.md' }).click();
+    await tab.locator('#working-diff .hunk-action').waitFor();
+    await tab.locator('#working-diff .line-number').filter({ hasText: /^3$/ }).first().click();
+    await tab.locator('#working-diff .line-number').filter({ hasText: /^1$/ }).first().click({ modifiers: ['Shift'] });
+    const controls = tab.locator('.working-preview .line-history-controls');
+    assert.equal(await controls.getByLabel('From line').inputValue(), '3');
+    assert.equal(await controls.getByLabel('To line').inputValue(), '1');
+    assert.equal(await tab.getByRole('button', { name: 'Stage lines', exact: true }).count(), 1);
+    await controls.getByRole('button', { name: 'History of these lines', exact: true }).click();
+    await tab.locator('#line-history-diff .diff-line').first().waitFor();
+    assert.deepEqual(await tab.evaluate(() => window.lineHistoryCalls), [{ repoId: 1, fileId: '62', commit: null, start: 1, end: 3 }]);
+    await tab.waitForFunction(() => !document.querySelector('#operation-feedback:not([hidden])'));
+  } finally { await tab.evaluate(() => { document.getElementById('line-history-dialog').close(); window.restoreLineHistoryInvoke(); }); }
+});
+
+test('blame tints commit ages and opens history for the selected lines', async () => {
+  await tab.evaluate(diff => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    window.blameHistoryCalls = [];
+    window.restoreBlameInvoke = () => { window.__TAURI_INTERNALS__.invoke = original; };
+    window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === 'file_history') return [{ oid: '2'.repeat(40), timestamp: 1700000000, author: 'Dev', subject: 'Edit' }];
+      if (cmd === 'file_blame') return [1600000000, 1700000000, 1600000000].map((timestamp, index) => ({ oid: String(index + 1).repeat(40), timestamp, author: 'Dev', text: 'Line ' + (index + 1) }));
+      if (cmd === 'line_history') { window.blameHistoryCalls.push(args); return { text: 'commit selected lines\n' + diff, truncated: false, binary: false }; }
+      return original(cmd, args);
+    };
+  }, diff);
+  try {
+    await tab.locator('.file-row', { has: tab.locator('button.file-name', { hasText: 'README.md' }) }).getByRole('button', { name: 'Show history for README.md', exact: true }).click();
+    await tab.locator('#file-blame-list .blame-heat').first().waitFor();
+    await tab.waitForFunction(() => !document.querySelector('#operation-feedback:not([hidden])'));
+    assert.equal(await tab.locator('.blame-legend').count(), 1);
+    const colors = await tab.locator('#file-blame-list .blame-heat').evaluateAll(rows => rows.map(row => row.style.backgroundColor));
+    assert.notEqual(colors[0], colors[1]); assert.equal(colors[0], colors[2]);
+    await tab.locator('#file-blame-list [data-line="1"]').click();
+    await tab.locator('#file-blame-list [data-line="3"]').click({ modifiers: ['Shift'] });
+    await tab.locator('#file-history-dialog .line-history-controls').getByRole('button', { name: 'History of these lines', exact: true }).click();
+    await tab.waitForFunction(() => window.blameHistoryCalls.length === 1);
+    assert.deepEqual(await tab.evaluate(() => window.blameHistoryCalls[0]), { repoId: 1, fileId: '62', commit: null, start: 1, end: 3 });
+    await tab.waitForFunction(() => !document.querySelector('#operation-feedback:not([hidden])'));
+  } finally { await tab.evaluate(() => { document.getElementById('line-history-dialog').close(); document.getElementById('file-history-dialog').close(); window.restoreBlameInvoke(); }); }
+});

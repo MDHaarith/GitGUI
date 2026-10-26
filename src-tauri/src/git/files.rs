@@ -36,7 +36,7 @@ fn gitignore_pattern(path: &[u8], folder: bool) -> Vec<u8> {
 
 impl Repository {
     /// Real path of a commit's file id, or of a tracked working-tree file id when `commit` is None.
-    fn file_path(&mut self, file_id: &str, commit: Option<&str>) -> Result<OsString> {
+    pub(super) fn file_path(&mut self, file_id: &str, commit: Option<&str>) -> Result<OsString> {
         if let Some(oid) = commit {
             valid_oid(oid)?;
             return self

@@ -31,6 +31,8 @@ pub mod output_log;
 mod process;
 mod rebase;
 mod share;
+mod time_machine;
+mod undo;
 mod vibe;
 pub use daily::{Junk, Stash};
 pub use files::{BlameLine, FileCommit};
@@ -38,6 +40,7 @@ pub(crate) use process::config;
 pub use process::redact;
 use process::*;
 pub use rebase::{RebaseCommit, RebaseEdit, RebasePlan};
+pub use time_machine::ReflogEntry;
 pub use vibe::{Session, SessionFile};
 
 pub type Result<T> = std::result::Result<T, String>;
@@ -199,6 +202,7 @@ struct Repository {
     paths: HashMap<String, OsString>,
     graph: Option<GraphCache>,
     graph_sequence: u64,
+    undo: Option<undo::Undo>,
 }
 #[derive(Default)]
 pub struct Backend {
@@ -255,6 +259,7 @@ impl Backend {
             paths: HashMap::new(),
             graph: None,
             graph_sequence: 0,
+            undo: None,
         };
         let info = repository.info()?;
         self.repos.push(repository);
@@ -699,6 +704,9 @@ impl Repository {
     }
     /// Tree of the whole working copy (tracked and untracked, minus ignored files) via a throwaway index.
     fn snapshot(&self) -> Result<String> {
+        self.snapshot_index(true)
+    }
+    fn snapshot_index(&self, worktree: bool) -> Result<String> {
         let temp = self.metadata("gitgui-checkpoint-index")?;
         let index = self.metadata("index")?;
         match fs::copy(&index, &temp) {
@@ -736,7 +744,11 @@ impl Repository {
             log.finish(&result);
             result
         };
-        let tree = git(&["add", "-A", "--", "."]).and_then(|_| git(&["write-tree"]));
+        let tree = if worktree {
+            git(&["add", "-A", "--", "."]).and_then(|_| git(&["write-tree"]))
+        } else {
+            git(&["write-tree"])
+        };
         let _ = fs::remove_file(&temp);
         Ok(text(line(&tree?)))
     }
