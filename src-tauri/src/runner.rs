@@ -26,12 +26,8 @@ const LAUNCHER_ENV: [&str; 12] = [
 
 /// The command that starts this project: `git config gitgui.runCommand`, else a guess from its files.
 pub fn command(root: &Path) -> Option<String> {
-    let configured = crate::platform::command("git")
-        .current_dir(root)
-        .args(["config", "gitgui.runCommand"])
-        .output()
+    let configured = crate::git::config(root, "gitgui.runCommand")
         .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
         .filter(|c| !c.is_empty());
     if configured.is_some() {
         return configured;

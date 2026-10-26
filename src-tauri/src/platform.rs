@@ -27,6 +27,38 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
     command
 }
 
+/// Spawn into a PTY using the same launcher-environment policy as `command`.
+pub fn terminal_shell(
+    slave: &dyn portable_pty::SlavePty,
+    root: &std::path::Path,
+) -> Result<Box<dyn portable_pty::Child + Send + Sync>, String> {
+    #[cfg(unix)]
+    let programs = [
+        std::env::var_os("SHELL")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "/bin/sh".into()),
+        "/bin/sh".into(),
+    ];
+    #[cfg(windows)]
+    let programs = [std::ffi::OsString::from("powershell.exe"), "cmd.exe".into()];
+    for program in programs {
+        let mut builder = portable_pty::CommandBuilder::new(&program);
+        builder.cwd(root);
+        builder.env("TERM", "xterm-256color");
+        for (name, value) in command(&program).get_envs() {
+            if value.is_none() {
+                builder.env_remove(name);
+            }
+        }
+        #[cfg(unix)]
+        builder.arg("-i");
+        if let Ok(child) = slave.spawn_command(builder) {
+            return Ok(child);
+        }
+    }
+    Err("Could not start the user's shell or the fallback shell.".into())
+}
+
 /// Runs a command line through the platform shell, in its own process group so `kill_tree` stops its children too.
 pub fn shell(line: &str) -> Command {
     #[cfg(unix)]

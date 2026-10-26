@@ -26,12 +26,14 @@ mod files;
 pub mod github;
 mod history;
 pub mod mcp;
+pub mod output_log;
 mod process;
 mod rebase;
 mod share;
 mod vibe;
 pub use daily::{Junk, Stash};
 pub use files::{BlameLine, FileCommit};
+pub(crate) use process::config;
 pub use process::redact;
 use process::*;
 pub use rebase::{RebaseCommit, RebaseEdit, RebasePlan};
@@ -710,22 +712,28 @@ impl Repository {
             Err(e) => return Err(format!("Cannot prepare the checkpoint: {e}")),
         }
         let git = |args: &[&str]| -> Result<Vec<u8>> {
-            let output = crate::platform::command(GIT)
-                .current_dir(&self.root)
-                .args(["--no-pager", "-c", "core.fsmonitor=false"])
-                .args(args)
-                .env("GIT_INDEX_FILE", &temp)
-                .env("GIT_TERMINAL_PROMPT", "0")
-                .env_remove("GIT_DIR")
-                .env_remove("GIT_WORK_TREE")
-                .stdin(Stdio::null())
-                .output()
-                .map_err(|e| format!("Could not start Git: {e}"))?;
-            if output.status.success() {
-                Ok(output.stdout)
-            } else {
-                Err(text(&output.stderr).trim().to_owned())
-            }
+            let mut log = output_log::CommandLog::new(&self.root, &argv(args));
+            let result = (|| {
+                let output = crate::platform::command(GIT)
+                    .current_dir(&self.root)
+                    .args(["--no-pager", "-c", "core.fsmonitor=false"])
+                    .args(args)
+                    .env("GIT_INDEX_FILE", &temp)
+                    .env("GIT_TERMINAL_PROMPT", "0")
+                    .env_remove("GIT_DIR")
+                    .env_remove("GIT_WORK_TREE")
+                    .stdin(Stdio::null())
+                    .output()
+                    .map_err(|e| format!("Could not start Git: {e}"))?;
+                log.status(output.status, &text(&output.stderr));
+                if output.status.success() {
+                    Ok(output.stdout)
+                } else {
+                    Err(redact(text(&output.stderr).trim()))
+                }
+            })();
+            log.finish(&result);
+            result
         };
         let tree = git(&["add", "-A", "--", "."]).and_then(|_| git(&["write-tree"]));
         let _ = fs::remove_file(&temp);

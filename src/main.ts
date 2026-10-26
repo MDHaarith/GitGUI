@@ -16,6 +16,7 @@ import { summaryHint } from './commit.ts';
 import { wireLineStaging } from './line-staging.ts';
 import { folderParents } from './file-tree.ts';
 import { markup } from './template.ts';
+import { wireTerminalPanel } from './terminal.ts';
 import { PRESETS, STARTER_RULES } from './ai.ts';
 import './styles.css';
 
@@ -32,6 +33,7 @@ const scopeDropdown = wireDropdown(select('scope'));
 const repoDropdown = wireDropdown(select('recent-repos'), () => button('open-repo').click());
 
 let repo: RepoInfo | null = null;
+const terminalPanel = wireTerminalPanel();
 let openRepos: RepoInfo[] = [];
 let page: GraphPage | null = null;
 let layout: Layout = layoutHistory([]);
@@ -208,6 +210,7 @@ function relative(timestamp: number) {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(age > 31536000 ? { year: 'numeric' } : {}) });
 }
 function renderInfo() {
+  terminalPanel.repository(repo);
   get('welcome').hidden = !!repo;
   get('branch-sidebar').hidden = !repo;
   get('workspace').classList.toggle('repository-open', !!repo);
@@ -493,7 +496,7 @@ async function activateRepository(next: RepoInfo, refresh = false) {
 async function openPath(path: string, load = api.open) { await activateRepository(await load(path)); }
 async function closeRepository(item: RepoInfo) {
   if (busy) return;
-  await api.closeRepository(item.id); openRepos = openRepos.filter(repo => repo.id !== item.id); rememberOpenRepos();
+  await api.closeRepository(item.id); terminalPanel.close(item.id); openRepos = openRepos.filter(repo => repo.id !== item.id); rememberOpenRepos();
   if (repo?.id !== item.id) return;
   saveDraft();
   const next = openRepos[0];
@@ -1560,6 +1563,7 @@ button('rules-starter').onclick = () => { const text = get<HTMLTextAreaElement>(
 get<HTMLFormElement>('rules-form').onsubmit = event => { event.preventDefault(); void saveRules(); };
 button('help-button').onclick = () => dialog('help-dialog').showModal();
 window.addEventListener('keydown', event => {
+  if (event.target instanceof Element && event.target.closest('.terminal-host')) return;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && repo) { event.preventDefault(); input('history-search').focus(); input('history-search').select(); }
   if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key) && !get('details').hidden) { event.preventDefault(); moveDetailFile(event.key === 'ArrowDown' ? 1 : -1); }
   if (event.key === 'Escape' && !get('details').hidden && !document.querySelector('dialog[open]') && document.activeElement !== input('history-search')) closeDetails();

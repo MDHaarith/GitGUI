@@ -145,6 +145,20 @@ pub(super) fn execute(
     timeout: Option<Duration>,
     progress: Option<Progress>,
 ) -> Result<Output> {
+    let mut log = output_log::CommandLog::new(root, args);
+    let result = execute_logged(root, args, input, limit, timeout, progress, &mut log);
+    log.finish(&result);
+    result
+}
+fn execute_logged(
+    root: &Path,
+    args: &[OsString],
+    input: Option<&[u8]>,
+    limit: usize,
+    timeout: Option<Duration>,
+    progress: Option<Progress>,
+    log: &mut output_log::CommandLog,
+) -> Result<Output> {
     let mut command = crate::platform::command(GIT);
     command
         .current_dir(root)
@@ -221,6 +235,7 @@ pub(super) fn execute(
         }
         thread::sleep(Duration::from_millis(10));
     };
+    log.status(status, "");
     let capture_deadline = Instant::now() + Duration::from_secs(2);
     while (!out_reader.is_finished() || !err_reader.is_finished())
         && Instant::now() < capture_deadline
@@ -238,6 +253,7 @@ pub(super) fn execute(
         .join()
         .map_err(|_| "Git error reader failed")?
         .map_err(|e| e.to_string())?;
+    log.status(status, &text(&stderr));
     if timed_out {
         return Err("Git timed out. Refresh repository state before retrying; check credentials or the remote connection.".into());
     }
@@ -282,6 +298,9 @@ pub(super) fn optional(root: &Path, args: &[&str]) -> Result<Option<Vec<u8>>> {
         return Err("Git output exceeds the supported limit".into());
     }
     Ok(output.ok.then(|| line(&output.stdout).to_vec()))
+}
+pub(crate) fn config(root: &Path, key: &str) -> Result<String> {
+    read(root, &argv(&["config", "--get", key])).map(|value| text(&value).trim().to_owned())
 }
 pub(super) fn valid_oid(oid: &str) -> Result<()> {
     if matches!(oid.len(), 40 | 64) && oid.bytes().all(|b| b.is_ascii_hexdigit()) {

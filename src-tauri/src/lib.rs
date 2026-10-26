@@ -3,13 +3,15 @@ pub mod codemap;
 pub mod git;
 pub mod platform;
 pub mod runner;
+pub mod terminal;
+mod terminal_commands;
 pub mod version;
 use git::{
     Backend, BlameLine, Checkpoint, CommitDetails, FileCommit, GraphPage, Junk, Preview, Progress,
     RepoInfo, Session, Stash,
 };
 use std::sync::{Arc, Mutex};
-use tauri::{ipc::Channel, State};
+use tauri::{ipc::Channel, Manager, State};
 
 #[derive(Default)]
 pub struct AppState(Arc<Mutex<Backend>>);
@@ -76,8 +78,14 @@ async fn open_repository(path: String, state: State<'_, AppState>) -> git::Resul
     task(state, true, move |b| b.open(&path)).await
 }
 #[tauri::command]
-async fn close_repository(repo_id: u64, state: State<'_, AppState>) -> git::Result<()> {
+async fn close_repository(
+    repo_id: u64,
+    state: State<'_, AppState>,
+    terminals: State<'_, Arc<terminal::Terminals>>,
+) -> git::Result<()> {
+    let terminals = terminals.inner().clone();
     task(state, true, move |b| {
+        terminals.close(repo_id);
         b.close_repository(repo_id);
         Ok(())
     })
@@ -898,10 +906,17 @@ async fn install_update(version: String, app: tauri::AppHandle) -> git::Result<(
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
+        .manage(Arc::new(terminal::Terminals::default()))
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             github_read,
             github_write,
+            terminal_commands::start_terminal,
+            terminal_commands::terminal_input,
+            terminal_commands::resize_terminal,
+            terminal_commands::terminal_ack,
+            terminal_commands::stop_terminal,
+            terminal_commands::git_output_log,
             startup_path,
             open_repository,
             close_repository,
@@ -974,6 +989,11 @@ pub fn run() {
             open_release,
             install_update
         ])
-        .run(tauri::generate_context!())
-        .expect("Could not run GitGUI");
+        .build(tauri::generate_context!())
+        .expect("Could not run GitGUI")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<Arc<terminal::Terminals>>().close_all();
+            }
+        });
 }

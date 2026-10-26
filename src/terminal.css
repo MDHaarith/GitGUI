@@ -1,0 +1,13 @@
+.terminal-panel { flex: 0 0 clamp(160px, 32dvh, 320px); min-height: 140px; min-width: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--edge); border-top-color: var(--edge-tertiary); border-radius: 12px; background: var(--surface-1); }
+.terminal-head { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 4px 8px; border-bottom: 1px solid var(--edge); }
+.terminal-head button { height: 28px; padding: 4px 8px; font-size: 12px; }
+.terminal-head [role="tab"][aria-selected="true"] { color: var(--ink); background: var(--surface-3); }
+#terminal-shells, #git-output { flex: 1; min-height: 0; min-width: 0; overflow: auto; }
+#terminal-shells { position: relative; overflow: hidden; padding: 8px; }
+.terminal-host { height: 100%; width: 100%; }
+.terminal-host .xterm { height: 100%; }
+.terminal-host .xterm-helper-textarea { padding: 0; border: 0; min-height: 0; border-radius: 0; }
+#git-output { padding: 8px 12px; font-size: 12px; }
+.git-output-entry { padding: 8px 0; border-bottom: 1px solid var(--edge); overflow-wrap: anywhere; }
+.git-output-entry code, .git-output-entry pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px 'Geist Mono', monospace; }
+.git-output-entry pre { margin: 4px 0; }

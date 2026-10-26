@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.26.0 — 2026-10-26
+- Built-in terminal (toolbar button or Ctrl+`): each repository tab gets its own shell; a checkpoint is saved when it starts
+- Git output tab lists the last 500 Git commands with time, duration, exit status and errors; secrets in arguments are hidden
+
 ## 0.25.0 — 2026-10-26
 - Stage or unstage individual lines: click or Shift-click changed lines in either diff view
 - Changes can be shown as a collapsible folder tree with file counts; the choice is remembered
