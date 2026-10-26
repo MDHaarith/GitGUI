@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.0 — 2026-10-26
+- GitGUI 1.0: every feature from 0.19.0 to 0.31.0 in one release, running on Linux, macOS and Windows, with the VS Code extension and the gitgui-mcp server
+
 ## 0.31.0 — 2026-10-26
 - Pull asks Merge or Rebase; a pull or branch switch blocked by local changes offers Stash & retry
 - When a push is rejected, Force push replaces the remote branch only if nobody else pushed since you fetched
