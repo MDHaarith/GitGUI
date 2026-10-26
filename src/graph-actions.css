@@ -1,0 +1,5 @@
+.graph-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--hairline); }
+.graph-actions .muted { font-size: 12px; }
+.commit-diff-dialog { width: calc(100vw - 32px); max-width: none; }
+.commit-diff-dialog .diff { max-height: calc(100vh - 160px); min-height: 40vh; overflow: auto; }
+#rebase-result { margin-right: auto; }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.30.0 — 2026-10-26
+- Select several commits in the graph to cherry-pick, revert, squash or drop them together; a checkpoint is saved first
+- Compare two selected commits, and copy one or more commit IDs
+- Clean up commits can stop to edit a commit, shows how many commits will result, and asks before rewriting pushed commits
+- Reword any commit on the current branch, including the first commit and merges
+- Open a changed file's diff full-width
+
 ## 0.29.0 — 2026-10-26
 - Three-pane merge editor: yours, incoming and an editable result, with a choice per conflict block; saving checkpoints first
 - Apply non-conflicting changes and Resolve simple fill in the easy parts without touching blocks you edited

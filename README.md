@@ -203,6 +203,18 @@ Named branch tips start separate colored graph paths, including a branch that is
 only ahead of another branch. Local and remote labels at the same commit share
 a path; tags do not create additional lanes. Lines always follow actual parents.
 
+**Ctrl/Cmd-click** adds or removes commits from the graph selection; **Shift-click**
+selects a range. **Commit actions** copies selected SHAs, cherry-picks or reverts
+commits in ancestry order, or opens a squash/drop plan for review. With two selected,
+**Compare two commits** opens their diff. In Details, choose a file and **Open full width**.
+
+**Clean up from here** adds older commits to the rebase plan. **Edit files (stop here)**
+pauses at that commit: change files, stage them, **Amend paused commit** in Changes,
+then Continue. The footer shows the resulting commit count. **Reword commit** can
+change any current-branch commit message, including root and merge commits, while
+preserving files and merge resolutions. History changes save a **Restore history**
+checkpoint and participate in Undo. Restoring history requires a clean branch.
+
 Open Details to review commits alongside the graph. The pane follows commit
 selection and can be resized horizontally. Diffs show old/new line numbers;
 **Alt+Up/Down** moves between changed files. Working diffs reload on refresh,
@@ -399,6 +411,10 @@ env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE \
   conflicts can use whole-file Accept Yours / Accept Theirs.
 - Staging works per file, per hunk, or selected changed lines (click or Shift-click).
   History search covers up to 10,000 loaded commits. Amend and undo refuse commits that were already pushed.
+- Squash, drop, and interactive cleanup require a linear commit range. Standalone
+  reword preserves merge topology. Rewrites refuse published commits by default;
+  opting in warns that the next push needs `git push --force-with-lease` in the
+  terminal. Rewritten commit signatures are removed.
 - The update check only sees published releases, not drafts.
 - Nested submodule operations are outside this release.
 - "Install and restart" replaces the Linux AppImage in place; on macOS and Windows,

@@ -1,5 +1,6 @@
 import { historyMarkup } from './undo-history.ts';
 
+import { graphActionsMarkup, graphDialogsMarkup } from './graph-actions.ts';
 // The app's static markup; main.ts wires behaviour to these IDs.
 export const markup = `
   <svg class="chrome-symbols" aria-hidden="true"><defs>
@@ -66,6 +67,7 @@ export const markup = `
       <nav class="ref-list" id="ref-list" aria-label="History scopes"></nav>
     </aside>
     <div class="repository-main">
+    ${graphActionsMarkup}
     <div class="history-review">
     <section class="history" id="history" aria-label="Repository history">
       <div class="empty" id="welcome"><span class="eyebrow">A clear view of your code</span><h1>Your repository,<br>in view.</h1><p>Follow branches and merges. Review changes.<br>Make your next commit with confidence.</p><span class="row welcome-actions"><button class="primary" id="welcome-open">Open repository <span aria-hidden="true">↗</span></button><button class="secondary" id="welcome-clone">Clone from a URL</button></span><span class="welcome-note">Local repositories. Offline fonts. Your workflow.</span></div>
@@ -85,13 +87,13 @@ export const markup = `
       <div class="metadata"><span id="detail-author"></span><span id="detail-date"></span><input id="detail-sha" readonly aria-label="Full commit object ID"><button id="copy-sha" class="chip" title="Copy the full commit ID">Copy</button></div>
       <pre class="message" id="detail-message"></pre><div class="parents" id="detail-parents"></div>
       <button type="button" class="chip" id="commit-explain">Explain this commit with AI</button>
-      <div class="detail-controls"><label for="detail-parent">Compare to</label><select id="detail-parent"></select><label for="detail-file">Files</label><select id="detail-file"></select><button id="detail-file-history" type="button">History</button><button id="detail-file-prev" aria-label="Previous changed file" title="Previous file (Alt+Up)">↑</button><button id="detail-file-next" aria-label="Next changed file" title="Next file (Alt+Down)">↓</button><button type="button" class="diff-toggle" aria-pressed="false" title="Show old and new side by side">Side by side</button></div>
+      <div class="detail-controls"><label for="detail-parent">Compare to</label><select id="detail-parent"></select><label for="detail-file">Files</label><select id="detail-file"></select><button id="detail-file-open" type="button">Open full width</button><button id="detail-file-history" type="button">History</button><button id="detail-file-prev" aria-label="Previous changed file" title="Previous file (Alt+Up)">↑</button><button id="detail-file-next" aria-label="Next changed file" title="Next file (Alt+Down)">↓</button><button type="button" class="diff-toggle" aria-pressed="false" title="Show old and new side by side">Side by side</button></div>
       <pre class="diff" id="detail-diff"></pre>
       <div class="row detail-actions"><button id="commit-revert" data-repo>Revert</button><button id="commit-cherry-pick" data-repo>Cherry-pick</button><button id="commit-tag" data-repo>Create tag</button><button id="commit-reset" data-repo>Reset branch here</button></div>
     </aside>
     </div>
     <section class="changes" id="changes" aria-label="Working changes" hidden>
-      <header class="panelbar"><h2>Working changes</h2><span id="operation-note" class="muted"></span><button id="operation-continue" class="chip" hidden title="Finish the merge, rebase, cherry-pick or revert now that conflicts are resolved">Continue</button><button id="operation-skip" hidden title="Skip the current commit; a checkpoint is saved first">Skip</button><button id="operation-abort" hidden title="Cancel it and go back to how things were before it started">Abort</button><span class="spacer"></span><button id="stash-changes" data-repo title="Put all changes aside (a stash) and bring them back later from Tools › Stashes">Stash</button><button id="undo-commit" data-repo title="Take back the last commit (if not pushed yet); its changes stay staged">Undo last commit</button><button type="button" id="file-tree-toggle" aria-pressed="false" title="Group changed files into collapsible folders">Folder tree</button><button id="close-changes">Close</button></header>
+      <header class="panelbar"><h2>Working changes</h2><span id="operation-note" class="muted"></span><button id="operation-continue" class="chip" hidden title="Finish the merge, rebase, cherry-pick or revert now that conflicts are resolved">Continue</button><button id="rebase-edit-amend" hidden>Amend paused commit</button><button id="operation-skip" hidden title="Skip the current commit; a checkpoint is saved first">Skip</button><button id="operation-abort" hidden title="Cancel it and go back to how things were before it started">Abort</button><span class="spacer"></span><button id="stash-changes" data-repo title="Put all changes aside (a stash) and bring them back later from Tools › Stashes">Stash</button><button id="undo-commit" data-repo title="Take back the last commit (if not pushed yet); its changes stay staged">Undo last commit</button><button type="button" id="file-tree-toggle" aria-pressed="false" title="Group changed files into collapsible folders">Folder tree</button><button id="close-changes">Close</button></header>
       <section id="conflicts-dashboard" aria-label="Conflicts dashboard" hidden></section>
       <div class="changes-body">
         <div class="file-list" id="file-list"></div>
@@ -259,10 +261,13 @@ export const markup = `
   </dialog>
   <dialog class="branch-dialog wide-dialog" id="rebase-dialog" aria-labelledby="rebase-title">
     <div class="dialog-head"><h2 id="rebase-title">Clean up commits</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
-    <p class="muted">Choose what to do with each unpublished commit, then reorder them with the buttons.</p>
+    <p class="muted">Choose what to do with each commit, then reorder them with the buttons. Edit stops so you can change files, stage them, amend the paused commit in Changes, then Continue.</p>
+    <p class="muted" id="rebase-note"></p>
+    <label class="choice"><input type="checkbox" id="rebase-published"> Allow rewriting already-pushed commits. The next push must use --force-with-lease (in the terminal).</label>
     <div id="rebase-commits" class="checkpoint-list"></div>
-    <div class="dialog-foot"><button class="primary" id="rebase-apply" type="button">Apply</button></div>
+    <div class="dialog-foot"><span class="muted" id="rebase-result" aria-live="polite"></span><button class="primary" id="rebase-apply" type="button">Apply</button></div>
   </dialog>
+  ${graphDialogsMarkup}
   <dialog class="branch-dialog wide-dialog" id="conflict-dialog" aria-labelledby="conflict-title">
     <div class="dialog-head"><h2 id="conflict-title">Resolve conflict</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
     <p class="muted">Edit Result or accept a side for each block. Ignore keeps the base text. A checkpoint is saved before writing the resolved file.</p>

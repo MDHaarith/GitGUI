@@ -21,7 +21,9 @@ import { markup } from './template.ts';
 import { wireTerminalPanel } from './terminal.ts';
 import { PRESETS, STARTER_RULES } from './ai.ts';
 import { mountAssistant } from './assistant.ts';
+import { selectCommits, batchRebase, resultingCommits } from './graph-actions.ts';
 import './styles.css';
+import './graph-actions.css';
 
 const app = document.getElementById('app')!;
 app.innerHTML = markup;
@@ -42,6 +44,8 @@ let openRepos: RepoInfo[] = [];
 let page: GraphPage | null = null;
 let layout: Layout = layoutHistory([]);
 let selected: string | null = null;
+let selectedCommits = new Set<string>();
+let selectionAnchor: string | null = null;
 let details: CommitDetails | null = null;
 let scope: string | null = null;
 let limit = 200;
@@ -56,7 +60,7 @@ const checked = { staged: new Set<string>(), unstaged: new Set<string>() };
 const historyRows = new Map<string, HTMLTableRowElement>();
 const graphNodes = new Map<string, Element>();
 const detailReads = new Set<Promise<unknown>>();
-let renderedSelection: string | null = null;
+let renderedSelection = new Set<string>();
 let searchMatches: string[] = [];
 let operationSequence = 0;
 let operationLabel = '';
@@ -160,6 +164,9 @@ function updateControls() {
   input('history-search').disabled = busy || !repo;
   button('search-prev').disabled = busy || !searchMatches.length; button('search-next').disabled = busy || !searchMatches.length;
   button('details-button').setAttribute('aria-expanded', String(!get('details').hidden));
+  updateGraphActions(unavailable);
+  button('rebase-edit-amend').hidden = !repo?.rebaseEdit;
+  disable('rebase-edit-amend', unavailable || (repo?.files.some(file => file.conflicted) ? 'Resolve conflicts first.' : ''));
   updateDetailControls();
   renderRecentRepositories();
   renderRepoTabs();
@@ -240,7 +247,7 @@ function renderInfo() {
     get(id).textContent = label + ' ' + (repo?.operation ?? '');
     get(id).hidden = id === 'operation-skip' ? !controls.canSkip : !controls.supported;
   }
-  if (conflicts) get('changes').hidden = false;
+  if (conflicts || repo?.rebaseEdit) get('changes').hidden = false;
   const trying = !!repo?.branch?.startsWith('try/');
   get('experiment-button').hidden = trying; get('experiment-bar').hidden = !trying;
 }
@@ -297,20 +304,23 @@ async function changeScope(next: string | null) {
   if (fromSidebar) [...get('ref-list').querySelectorAll<HTMLButtonElement>('button')].find(item => item.dataset.scope === (scope ?? ''))?.focus({ preventScroll: true });
 }
 function updateSelection() {
-  for (const oid of new Set([renderedSelection, selected])) {
-    if (!oid) continue;
-    const active = oid === selected; const row = historyRows.get(oid);
+  for (const oid of new Set([...renderedSelection, ...selectedCommits])) {
+    const active = selectedCommits.has(oid); const row = historyRows.get(oid);
     row?.classList.toggle('selected', active);
+    row?.setAttribute('aria-selected', String(active));
     row?.querySelector('button.subject')?.setAttribute('aria-pressed', String(active));
     graphNodes.get(oid)?.setAttribute('stroke-width', active ? '2' : '1.75');
   }
-  renderedSelection = selected;
+  renderedSelection = new Set(selectedCommits);
   updateSearchCount();
   updateControls();
 }
-function choose(oid: string, focus = false) {
+function choose(oid: string, focus = false, event?: MouseEvent | KeyboardEvent) {
   if (busy) return;
-  selected = oid; updateSelection();
+  selectedCommits = selectCommits(page?.commits.map(commit => commit.oid) ?? [], selectedCommits, selectionAnchor, oid, !!(event?.ctrlKey || event?.metaKey), !!event?.shiftKey);
+  if (!event?.shiftKey) selectionAnchor = oid;
+  selected = selectedCommits.has(oid) ? oid : [...selectedCommits].at(-1) ?? null;
+  updateSelection();
   if (focus) historyRows.get(oid)?.querySelector<HTMLButtonElement>('button.subject')?.focus({ preventScroll: true });
   if (!get('details').hidden && !busy) void openDetails();
 }
@@ -340,7 +350,7 @@ function renderGraph() {
   layout = layoutHistory(page?.commits ?? [], page?.refs ?? []);
   document.documentElement.style.setProperty('--graph-width', Math.max(132, layout.lanes * 18 + 28) + 'px');
   const rows = get('history-rows'); const fragment = document.createDocumentFragment();
-  historyRows.clear(); graphNodes.clear(); renderedSelection = null;
+  historyRows.clear(); graphNodes.clear(); renderedSelection.clear();
   const refsByCommit = new Map<string, GraphPage['refs']>();
   for (const reference of page?.refs ?? []) {
     const refs = refsByCommit.get(reference.target) ?? []; refs.push(reference); refsByCommit.set(reference.target, refs);
@@ -361,17 +371,19 @@ function renderGraph() {
       ref.textContent = (reference.isHead ? 'HEAD → ' : '') + reference.name;
       ref.style.color = row.color; ref.title = reference.fullName;
       ref.setAttribute('aria-label', reference.kind + ' ' + reference.name + ', select its tip');
-      ref.addEventListener('click', () => choose(commit.oid)); content.append(ref);
+      ref.addEventListener('click', event => choose(commit.oid, false, event)); content.append(ref);
     }
     const subject = document.createElement('button'); subject.type = 'button'; subject.className = 'subject'; subject.textContent = commit.subject || '(no subject)';
     subject.title = commit.subject; subject.setAttribute('aria-label', commit.subject + ', ' + commit.author + ', ' + short(commit.oid) + ', ' + commit.parents.length + ' parents');
-    subject.addEventListener('click', () => choose(commit.oid));
+    subject.addEventListener('click', event => choose(commit.oid, false, event));
+    subject.addEventListener('contextmenu', event => { event.preventDefault(); event.stopPropagation(); if (busy) return; if (!selectedCommits.has(commit.oid)) choose(commit.oid); openRefMenu(subject, commitActions(commit.oid)); });
     subject.addEventListener('dblclick', () => { if (get('details').hidden) void openDetails(); });
     subject.addEventListener('keydown', event => {
+      if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); if (!selectedCommits.has(commit.oid)) choose(commit.oid); openRefMenu(subject, commitActions(commit.oid)); return; }
       if (event.key === 'Enter') { event.preventDefault(); const wasHidden = get('details').hidden; choose(commit.oid); if (wasHidden) void openDetails(); return; }
       if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
       event.preventDefault(); const index = layout.rows.indexOf(row); const next = layout.rows[Math.max(0, Math.min(layout.rows.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))];
-      choose(next.commit.oid, true);
+      choose(next.commit.oid, true, event);
       historyRows.get(next.commit.oid)?.scrollIntoView({ block: 'nearest' });
     });
     if (page?.head === commit.oid && !refsByCommit.get(commit.oid)?.some(ref => ref.isHead)) {
@@ -381,6 +393,8 @@ function renderGraph() {
     const author = document.createElement('td'); author.className = 'author-cell'; author.textContent = commit.author; author.title = commit.author;
     const date = document.createElement('td'); date.className = 'date-cell'; date.textContent = relative(commit.timestamp); date.title = new Date(commit.timestamp * 1000).toString();
     const sha = document.createElement('td'); sha.className = 'sha-cell'; sha.textContent = commit.shortOid; sha.title = commit.oid;
+    tr.addEventListener('click', event => { if (!(event.target as Element).closest('button')) choose(commit.oid, false, event); });
+    tr.addEventListener('contextmenu', event => { event.preventDefault(); event.stopPropagation(); if (busy) return; if (!selectedCommits.has(commit.oid)) choose(commit.oid); openRefMenu(subject, commitActions(commit.oid)); });
     tr.append(gutter, description, author, date, sha); fragment.append(tr);
   }
   rows.replaceChildren(fragment);
@@ -400,6 +414,8 @@ async function loadGraph(more = false) {
   if (currentEpoch !== epoch || repo?.id !== id) return;
   page = result;
   if (!page.commits.some(commit => commit.oid === selected)) selected = page.commits.find(commit => commit.oid === page?.head)?.oid ?? page.commits[0]?.oid ?? null;
+  selectedCommits = new Set([...selectedCommits].filter(oid => page!.commits.some(commit => commit.oid === oid)));
+  if (!selectedCommits.size && selected) selectedCommits.add(selected);
   renderGraph();
 }
 async function refresh() {
@@ -441,6 +457,7 @@ function renderCheckpoints(list: Checkpoint[]) {
     const meta = document.createElement('span'); meta.className = 'muted'; meta.textContent = new Date(checkpoint.timestamp * 1000).toLocaleString() + ' · ' + checkpoint.summary;
     const restore = document.createElement('button'); restore.type = 'button'; restore.textContent = 'Restore'; restore.setAttribute('aria-label', 'Restore checkpoint ' + checkpoint.label);
     restore.onclick = () => { void restoreCheckpoint(checkpoint); };
+    if (checkpoint.historyHead) restore.textContent = 'Restore history';
     item.append(title, meta, restore); return item;
   });
   if (!items.length) { const empty = document.createElement('li'); empty.className = 'muted'; empty.textContent = 'No checkpoints yet. Save one before letting an AI change your code.'; items.push(empty); }
@@ -461,42 +478,158 @@ async function saveCheckpoint() {
 }
 async function restoreCheckpoint(checkpoint: Checkpoint) {
   if (!repo || busy) return;
-  if (!await confirm(`Restore "${checkpoint.label}" (${new Date(checkpoint.timestamp * 1000).toLocaleString()})? Your current files are saved as a checkpoint first.`, { title: 'Restore checkpoint', kind: 'warning' })) return;
+  if (!await confirm(checkpoint.historyHead ? `Restore ${repo.branch ?? 'the current branch'} to ${short(checkpoint.historyHead)}? This undoes its later history. Commit or stash working changes first. The current history is checkpointed before restoring. If published history changes, the next push must use --force-with-lease in the terminal.` : `Restore "${checkpoint.label}" (${new Date(checkpoint.timestamp * 1000).toLocaleString()})? Your current files are saved as a checkpoint first.`, { title: 'Restore checkpoint', kind: 'warning' })) return;
   dialog('checkpoint-dialog').close();
   await mutate('Restoring checkpoint…', () => api.restoreCheckpoint(repo!.id, checkpoint.oid, repo!.token));
 }
-let rebasePlan: { base: string; commits: RebaseEdit[] } | null = null;
+function updateGraphActions(unavailable: string) {
+  get('graph-actions').hidden = !repo || !selectedCommits.size;
+  get('graph-selection-count').textContent = selectedCommits.size + ' selected';
+  button('graph-compare').hidden = selectedCommits.size !== 2;
+  disable('graph-compare', unavailable);
+  disable('graph-actions-button', unavailable);
+  disable('graph-clear', unavailable);
+}
+function commitActions(oid = selected): [string, () => void][] {
+  const count = selectedCommits.size;
+  const actions: [string, () => void][] = [[count === 1 ? 'Copy SHA' : `Copy ${count} SHAs`, () => { void copySelectedShas(); }]];
+  if (count === 2) actions.push(['Compare two commits', () => { void compareSelectedCommits(); }]);
+  if (normal() && !repo?.detached && count) {
+    actions.push([`Cherry-pick ${count} commit${count === 1 ? '' : 's'}`, () => { void applyGraphCommits(false); }], [`Revert ${count} commit${count === 1 ? '' : 's'}`, () => { void applyGraphCommits(true); }]);
+    const oldest = page?.commits.filter(commit => selectedCommits.has(commit.oid)).at(-1)?.oid;
+    if (oldest) {
+      if (count > 1) actions.push([`Squash ${count} commits into one…`, () => { void openRebase(oldest, 'squash'); }]);
+      actions.push([`Drop ${count} commit${count === 1 ? '' : 's'}…`, () => { void openRebase(oldest, 'drop'); }]);
+    }
+    if (oid && count === 1) actions.push(['Reword commit…', () => { void openRewordCommit(oid); }], ['Clean up from here…', () => { void openRebase(oid); }]);
+  }
+  return actions;
+}
+async function copySelectedShas() {
+  const oids = page?.commits.filter(commit => selectedCommits.has(commit.oid)).map(commit => commit.oid) ?? [];
+  if (!oids.length) return;
+  const text = oids.join('\n');
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const field = document.createElement('textarea'); field.value = text; field.setAttribute('aria-label', 'Selected commit IDs'); document.body.append(field); field.select();
+    const copied = document.execCommand('copy'); field.remove();
+    if (!copied) { report('Could not copy commit IDs. Open Details to select and copy an ID manually.'); return; }
+  }
+  notify('Copied ' + oids.length + ' commit ID' + (oids.length === 1 ? '' : 's'));
+}
+async function applyGraphCommits(revert: boolean) {
+  if (!repo || busy || !selectedCommits.size) return;
+  const current = repo; const oids = [...selectedCommits];
+  const action = revert ? 'Revert' : 'Cherry-pick';
+  if (!await confirm(`${action} ${oids.length} selected commit${oids.length === 1 ? '' : 's'} on ${current.branch}? ${revert ? 'Apply inverse changes, newest first.' : 'Replay changes, oldest first.'} Merge commits use their first parent. A history checkpoint is saved first. On conflicts, resolve the files in Changes, then Continue or Abort.`, { title: action + ' commits', kind: 'warning' })) return;
+  await mutate(action + ' commits…', () => api.batchCommits(current.id, oids, revert, current.token));
+}
+let fullDiffRequest = 0;
+async function showFullDiff(title: string, load: () => Promise<Preview>) {
+  if (!repo || busy) return;
+  const id = repo.id; const currentEpoch = epoch; const request = ++fullDiffRequest;
+  get('commit-diff-title').textContent = title; get('commit-full-diff').textContent = 'Reading diff…'; dialog('commit-diff-dialog').showModal();
+  try {
+    const preview = await readDetail(load());
+    if (request === fullDiffRequest && repo?.id === id && epoch === currentEpoch && dialog('commit-diff-dialog').open) previewInto('commit-full-diff', preview);
+  } catch (error) { if (request === fullDiffRequest && dialog('commit-diff-dialog').open) { get('commit-full-diff').textContent = 'Unable to read this diff.'; report(error); } }
+}
+async function compareSelectedCommits() {
+  if (!repo || busy || selectedCommits.size !== 2) return;
+  const commits = page?.commits.filter(commit => selectedCommits.has(commit.oid)) ?? [];
+  if (commits.length !== 2) return;
+  const id = repo.id; const [to, from] = commits;
+  await showFullDiff(short(from.oid) + ' → ' + short(to.oid), () => api.compareCommits(id, from.oid, to.oid));
+}
+async function openFullFileDiff() {
+  if (!repo || !details || busy) return;
+  const file = details.files.find(file => file.id === select('detail-file').value);
+  if (!file) return;
+  const id = repo.id, oid = details.oid, parent = details.parent;
+  await showFullDiff(file.path + ' · ' + short(oid), () => api.commitDiff(id, oid, parent, file.id));
+}
+let rewordTarget: { repoId: number; oid: string; token: string } | null = null;
+async function openRewordCommit(oid: string) {
+  if (!repo || busy) return;
+  const current = repo;
+  await run('Reading commit message…', async () => {
+    const commit = await api.details(current.id, oid);
+    rewordTarget = { repoId: current.id, oid, token: current.token };
+    get<HTMLTextAreaElement>('reword-message').value = commit.message;
+    input('reword-published').checked = false;
+    dialog('reword-dialog').showModal(); notify('Review the new message before rewording.');
+  });
+}
+async function rewordCommit() {
+  const target = rewordTarget;
+  if (!target || !repo || busy || target.repoId !== repo.id) return;
+  const text = get<HTMLTextAreaElement>('reword-message').value;
+  const allowPublished = input('reword-published').checked;
+  if (!await confirm(`Change ${short(target.oid)}'s message and replay its descendants? A history checkpoint is saved first.${allowPublished ? ' Already-pushed commits may change. The next push must use --force-with-lease in the terminal.' : ' Already-pushed commits will be refused.'}`, { title: 'Reword commit', kind: 'warning' })) return;
+  dialog('reword-dialog').close();
+  await mutate('Rewording commit…', () => api.rewordCommit(target.repoId, target.oid, text, allowPublished, target.token));
+}
+async function amendPausedCommit() {
+  if (!repo?.rebaseEdit || !repo.head || busy) return;
+  await run('Reading paused commit…', async () => {
+    const commit = await api.details(repo!.id, repo!.head!);
+    get<HTMLTextAreaElement>('rebase-edit-message').value = commit.message;
+    dialog('rebase-edit-dialog').showModal(); notify('Review the message and staged changes before amending.');
+  });
+}
+let rebasePlan: { base: string; commits: RebaseEdit[]; repoId: number; token: string } | null = null;
 function renderRebase() {
   const list = get('rebase-commits');
   list.replaceChildren(...(rebasePlan?.commits ?? []).map((commit, index) => {
     const row = document.createElement('div'); row.className = 'row';
     const label = document.createElement('span'); label.textContent = commit.oid.slice(0, 8) + ' ' + commit.message.split('\n')[0];
     const action = document.createElement('select');
-    for (const [value, name] of [['pick', 'Keep'], ['reword', 'Edit message'], ['squash', 'Combine with previous'], ['fixup', 'Combine and drop message'], ['drop', 'Delete']]) action.append(option(value, name));
-    action.value = commit.action; if (index === 0) { action.querySelector<HTMLOptionElement>('option[value="squash"]')!.disabled = true; action.querySelector<HTMLOptionElement>('option[value="fixup"]')!.disabled = true; } action.onchange = () => { commit.action = action.value as RebaseEdit['action']; renderRebase(); };
+    for (const [value, name] of [['pick', 'Keep'], ['reword', 'Edit message'], ['edit', 'Edit files (stop here)'], ['squash', 'Combine with previous'], ['fixup', 'Combine and drop message'], ['drop', 'Delete']]) action.append(option(value, name));
+    action.setAttribute('aria-label', 'Action for ' + short(commit.oid));
+    action.value = commit.action; if (index === rebasePlan?.commits.findIndex(commit => commit.action !== 'drop')) { action.querySelector<HTMLOptionElement>('option[value="squash"]')!.disabled = true; action.querySelector<HTMLOptionElement>('option[value="fixup"]')!.disabled = true; } action.onchange = () => { commit.action = action.value as RebaseEdit['action']; renderRebase(); };
     row.append(label, action);
     if (commit.action === 'reword') { const message = document.createElement('textarea'); message.value = commit.message; message.setAttribute('aria-label', 'New commit message'); message.oninput = () => { commit.message = message.value; }; row.append(message); }
     for (const [name, offset] of [['Move up', -1], ['Move down', 1]] as const) { const move = document.createElement('button'); move.textContent = name; move.disabled = index + offset < 0 || index + offset >= rebasePlan!.commits.length; move.onclick = () => { const to = index + offset; [rebasePlan!.commits[index], rebasePlan!.commits[to]] = [rebasePlan!.commits[to], rebasePlan!.commits[index]]; renderRebase(); }; row.append(move); }
     return row;
   }));
-  button('rebase-apply').disabled = !rebasePlan?.commits.length;
+  const count = resultingCommits(rebasePlan?.commits ?? []);
+  get('rebase-result').textContent = `${count} resulting commit${count === 1 ? '' : 's'} in this range`;
+  const first = rebasePlan?.commits.find(commit => commit.action !== 'drop');
+  button('rebase-apply').disabled = !rebasePlan?.commits.length || (rebasePlan.base === '' && count === 0) || first?.action === 'squash' || first?.action === 'fixup';
 }
-async function openRebase() {
+async function openRebase(oid?: string, action?: 'squash' | 'drop') {
   if (!repo || busy) return;
-  await run('Loading commits…', async () => { const plan = await api.rebasePlan(repo!.id, repo!.token); rebasePlan = { base: plan.base, commits: plan.commits.map(commit => ({ ...commit, action: 'pick' })) }; renderRebase(); dialog('rebase-dialog').showModal(); notify('Ready'); });
+  const current = repo; const chosen = new Set(selectedCommits);
+  await run('Loading commits…', async () => {
+    const plan = oid ? await api.rebasePlanFrom(current.id, oid, current.token) : await api.rebasePlan(current.id, current.token);
+    let commits: RebaseEdit[] = plan.commits.map(commit => ({ ...commit, action: 'pick' }));
+    if (action === 'squash' || action === 'drop') {
+      if ([...chosen].some(oid => !commits.some(commit => commit.oid === oid))) throw new Error('Select commits on the current branch only.');
+      commits = batchRebase(commits, chosen, action);
+    }
+    rebasePlan = { ...plan, commits, repoId: current.id, token: current.token };
+    input('rebase-published').checked = false;
+    get('rebase-note').textContent = action === 'squash' ? `Combine ${chosen.size} selected commits into one at the oldest selected position. Intervening commits replay after the combined commit. Review the order below.` : action === 'drop' ? `Delete ${chosen.size} selected commits and replay the remaining commits below.` : !commits.length ? 'No unpublished commits in this range. Use Commit actions → Clean up from here on an earlier commit to include it.' : 'A checkpoint saves the branch history before any changes.';
+    renderRebase(); dialog('rebase-dialog').showModal(); notify('Ready');
+  });
 }
 async function applyRebase() {
   if (!repo || !rebasePlan || busy) return;
-  if (!await confirm('Rewrite these commits? Their IDs will change. A checkpoint is saved first.', { title: 'Clean up commits', kind: 'warning' })) return;
-  const plan = rebasePlan; dialog('rebase-dialog').close();
-  await mutate('Cleaning up commits…', () => api.cleanCommits(repo!.id, plan.base, plan.commits, repo!.token));
+  const plan = rebasePlan; const allowPublished = input('rebase-published').checked;
+  if (repo.id !== plan.repoId) return;
+  const warning = allowPublished ? ' Already-pushed commits may change. The next push must use --force-with-lease in the terminal; coordinate with collaborators first.' : ' Already-pushed commits will be refused.';
+  if (!await confirm(`Rewrite ${plan.commits.length} commits into ${resultingCommits(plan.commits)}? Their IDs may change. A history checkpoint is saved first.${warning}`, { title: 'Clean up commits', kind: 'warning' })) return;
+  dialog('rebase-dialog').close();
+  await mutate('Cleaning up commits…', () => api.rewriteCommits(plan.repoId, plan.base, plan.commits, allowPublished, plan.token));
+  if (get('error').hidden && allowPublished) notify('History rewrite started. Next push: git push --force-with-lease (terminal).');
 }
 async function activateRepository(next: RepoInfo, refresh = false) {
   saveDraft();
   if (refresh) next = await api.status(next.id);
-  for (const id of ['branches', 'remote-dialog', 'rebase-dialog']) if (dialog(id).open) dialog(id).close();
+  for (const id of ['branches', 'remote-dialog', 'rebase-dialog', 'commit-diff-dialog', 'rebase-edit-dialog', 'reword-dialog']) if (dialog(id).open) dialog(id).close();
   get('details').hidden = true;
   details = null; detailRequest++; workingRequest++;
+  selectedCommits.clear(); selectionAnchor = null;
   repo = next; epoch++; scope = null; limit = 200; page = null; selected = null; workingFile = null;
   checked.staged.clear(); checked.unstaged.clear(); input('branch-name').value = ''; setAmend(false); lastFetch = Date.now() - 4 * 60_000;
   input('history-search').value = ''; searchMatches = [];
@@ -517,6 +650,7 @@ async function closeRepository(item: RepoInfo) {
   const next = openRepos[0];
   if (next) await run('Opening repository…', () => activateRepository(next, true));
   else {
+    selectedCommits.clear(); selectionAnchor = null;
     repo = null; page = null; selected = null; details = null; scope = null; epoch++; renderInfo(); renderFiles(); renderRepoTabs();
     get('welcome').hidden = false; get('graph-scene').hidden = true; get('empty-history').hidden = true; get('changes').hidden = true; notify('Open a repository to begin.'); updateControls();
   }
@@ -642,6 +776,7 @@ function updateDetailControls() {
   button('detail-file-prev').disabled = files.disabled || files.selectedIndex <= 0;
   button('detail-file-next').disabled = files.disabled || files.selectedIndex >= files.options.length - 1;
   button('detail-file-history').disabled = files.disabled || !files.value;
+  button('detail-file-open').disabled = files.disabled || !files.value;
   disable('copy-sha', !details ? 'Open a commit to copy its ID.' : '');
 }
 function moveDetailFile(direction: number) {
@@ -1229,7 +1364,7 @@ async function mutate(label: string, action: () => Promise<RepoInfo>, committed 
     checked.staged.clear(); checked.unstaged.clear(); clearWorkingPreview();
     if (committed) {
       input('summary').value = ''; get<HTMLTextAreaElement>('body').value = ''; removeStored(draftKey()); renderSummaryHint(); setAmend(false);
-      selected = repo.head; scope = null; limit = 200;
+      selected = repo.head; selectedCommits.clear(); selectionAnchor = null; scope = null; limit = 200;
     }
     get('working-diff').replaceChildren(); get('working-path').textContent = 'Select a file to review its diff.';
     renderInfo(); renderFiles(); await loadGraph(); get('error').hidden = true; notify('Done · repository refreshed');
@@ -1541,6 +1676,13 @@ button('operation-continue').onclick = () => { if (repo) void mutate('Continuing
 button('operation-skip').onclick = () => { void skipOperation(); };
 button('operation-abort').onclick = () => { void abortOperation(); };
 button('undo-commit').onclick = () => { void undoCommit(); };
+button('graph-actions-button').onclick = event => { event.stopPropagation(); if (!busy) openRefMenu(button('graph-actions-button'), commitActions()); };
+button('graph-compare').onclick = () => { void compareSelectedCommits(); };
+button('graph-clear').onclick = () => { if (busy) return; selectedCommits.clear(); selected = null; selectionAnchor = null; updateSelection(); };
+button('detail-file-open').onclick = () => { void openFullFileDiff(); };
+get<HTMLFormElement>('reword-form').onsubmit = event => { event.preventDefault(); void rewordCommit(); };
+button('rebase-edit-amend').onclick = () => { void amendPausedCommit(); };
+get<HTMLFormElement>('rebase-edit-form').onsubmit = event => { event.preventDefault(); if (!repo || busy) return; const text = get<HTMLTextAreaElement>('rebase-edit-message').value; dialog('rebase-edit-dialog').close(); void mutate('Amending paused commit…', () => api.amendRebaseCommit(repo!.id, text, repo!.token)); };
 button('rebase-button').onclick = () => { void openRebase(); };
 button('rebase-apply').onclick = () => { void applyRebase(); };
 button('ai-message').onclick = () => { void writeMessage(); };

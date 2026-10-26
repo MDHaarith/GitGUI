@@ -77,48 +77,7 @@ impl Backend {
                 }
             }
         };
-        let rows = read(
-            &repo.root,
-            &argv(&[
-                "rev-list",
-                "--reverse",
-                &format!("{base}..HEAD"),
-                "--parents",
-            ]),
-        )?;
-        if rows
-            .split(|b| *b == b'\n')
-            .any(|line| line.split(|b| *b == b' ').count() > 2)
-        {
-            return Err(
-                "This range includes a merge commit. Clean it up with Git's merge tools first."
-                    .into(),
-            );
-        }
-        let log = read(
-            &repo.root,
-            &argv(&[
-                "log",
-                "--reverse",
-                "--format=%H%x00%B%x00",
-                &format!("{base}..HEAD"),
-            ]),
-        )?;
-        let fields: Vec<_> = log.split(|b| *b == 0).collect();
-        let commits = fields
-            .chunks_exact(2)
-            .filter_map(|pair| {
-                let oid = text(pair[0]).trim().to_owned();
-                if oid.is_empty() {
-                    return None;
-                }
-                Some(RebaseCommit {
-                    oid,
-                    message: text(pair[1]).trim_end_matches('\n').to_owned(),
-                })
-            })
-            .collect();
-        Ok(RebasePlan { base, commits })
+        repo.rewrite_plan(&base)
     }
 
     pub fn clean_commits(
@@ -130,6 +89,23 @@ impl Backend {
     ) -> Result<RepoInfo> {
         valid_oid(base)?;
         let plan = self.rebase_plan(id, token)?;
+        if base != plan.base {
+            return Err("The commit list changed. Close this window and reopen it.".into());
+        }
+        self.rewrite_commits(id, base, commits, false, token)
+    }
+
+    pub fn rewrite_commits(
+        &mut self,
+        id: u64,
+        base: &str,
+        commits: Vec<RebaseEdit>,
+        allow_published: bool,
+        token: &str,
+    ) -> Result<RepoInfo> {
+        if !base.is_empty() {
+            valid_oid(base)?;
+        }
         let repo = self.repo(id)?;
         let info = repo.checked(token)?;
         repo.require_normal(&info)?;
@@ -141,13 +117,19 @@ impl Backend {
                 "Save, commit, or stash your file changes before cleaning up commits.".into(),
             );
         }
+        let plan = repo.rewrite_plan(base)?;
         let expected: HashSet<_> = plan.commits.iter().map(|c| c.oid.as_str()).collect();
         let got: HashSet<_> = commits.iter().map(|c| c.oid.as_str()).collect();
-        if base != plan.base || commits.len() != expected.len() || got != expected {
+        if commits.is_empty()
+            || base != plan.base
+            || commits.len() != expected.len()
+            || got != expected
+        {
             return Err("The commit list changed. Close this window and reopen it.".into());
         }
         if commits
-            .first()
+            .iter()
+            .find(|c| c.action != "drop")
             .is_some_and(|c| matches!(c.action.as_str(), "squash" | "fixup"))
         {
             return Err("The first commit cannot be combined with an earlier commit.".into());
@@ -156,7 +138,7 @@ impl Backend {
             valid_oid(&edit.oid)?;
             if !matches!(
                 edit.action.as_str(),
-                "pick" | "reword" | "squash" | "fixup" | "drop"
+                "pick" | "reword" | "edit" | "squash" | "fixup" | "drop"
             ) {
                 return Err("Choose a valid action for every commit.".into());
             }
@@ -168,22 +150,27 @@ impl Backend {
                 return Err("Commit messages must be non-empty and under 128 KiB.".into());
             }
         }
-        for commit in &plan.commits {
-            if !read(
-                &repo.root,
-                &argv(&[
-                    "for-each-ref",
-                    "--format=%(refname)",
-                    &format!("--contains={}", commit.oid),
-                    "refs/remotes/",
-                ]),
-            )?
-            .is_empty()
-            {
-                return Err("This range contains commits already published to the remote.".into());
-            }
+        if base.is_empty() && commits.iter().all(|c| c.action == "drop") {
+            return Err("Keep at least one commit when rewriting the root.".into());
         }
-        repo.save_checkpoint("Before cleaning up commits")?;
+        repo.require_unpublished(
+            &plan
+                .commits
+                .iter()
+                .map(|c| c.oid.clone())
+                .collect::<Vec<_>>(),
+            allow_published,
+        )?;
+        let mut paths = Vec::new();
+        for commit in &plan.commits {
+            let details = repo.details(&commit.oid, None)?;
+            paths.extend(
+                repo.commit_paths(&commit.oid, details.parent.as_deref())?
+                    .into_values(),
+            );
+        }
+        repo.protect_ignored(&paths)?;
+        repo.save_history_checkpoint("Before cleaning up commits")?;
         let dir = std::env::temp_dir();
         let nonce = format!(
             "gitgui-rebase-{}-{}",
@@ -222,7 +209,9 @@ impl Backend {
             os("core.editor=true"),
             os("rebase"),
             os("-i"),
-            os(base),
+            os("--keep-empty"),
+            os("--empty=keep"),
+            os(if base.is_empty() { "--root" } else { base }),
         ];
         let result = repo.write(&args, None, None, None);
         let _ = fs::remove_file(todo_path);
@@ -248,4 +237,64 @@ fn shell_quote(path: &Path) -> String {
 
 fn shell_quote_str(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+impl Repository {
+    pub(super) fn rewrite_plan(&self, base: &str) -> Result<RebasePlan> {
+        if !base.is_empty() {
+            valid_oid(base)?;
+            read(
+                &self.root,
+                &argv(&["merge-base", "--is-ancestor", base, "HEAD"]),
+            )
+            .map_err(|_| "Choose a commit on the current branch.".to_owned())?;
+        }
+        let range = if base.is_empty() {
+            "HEAD".into()
+        } else {
+            format!("{base}..HEAD")
+        };
+        let rows = read(
+            &self.root,
+            &argv(&["rev-list", "--reverse", &range, "--parents"]),
+        )?;
+        if rows
+            .split(|b| *b == b'\n')
+            .any(|line| line.split(|b| *b == b' ').count() > 2)
+        {
+            return Err(
+                "This range includes a merge commit. Clean it up with Git's merge tools first."
+                    .into(),
+            );
+        }
+        let log = read(
+            &self.root,
+            &argv(&["log", "--reverse", "--format=%H%x00%B%x00", &range]),
+        )?;
+        let fields: Vec<_> = log.split(|b| *b == 0).collect();
+        let commits: Vec<RebaseCommit> = fields
+            .chunks_exact(2)
+            .filter_map(|pair| {
+                let oid = text(pair[0]).trim().to_owned();
+                if oid.is_empty() {
+                    return None;
+                }
+                Some(RebaseCommit {
+                    oid,
+                    message: text(pair[1]).trim_end_matches('\n').to_owned(),
+                })
+            })
+            .collect();
+        if commits.len() > 10000 {
+            return Err("Rewrite at most 10,000 commits at a time.".into());
+        }
+        let shallow = self.shallow()?;
+        if commits.iter().any(|c| shallow.contains(&c.oid)) {
+            return Err("Fetch more history before rewriting a shallow boundary.".into());
+        }
+        Ok(RebasePlan {
+            base: base.into(),
+            commits,
+        })
+    }
 }

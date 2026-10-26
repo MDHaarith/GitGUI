@@ -589,3 +589,89 @@ test('merge automation resolves simple markers and failed saves leave the editab
     assert.equal(await tab.locator('#conflict-dialog').evaluate(dialog => dialog.open), true);
   } finally { await tab.evaluate(() => document.getElementById('conflict-dialog').close()); }
 });
+
+test('graph selection, batch review, copy, comparison, reword and full-width file diffs use the bridge', async () => {
+  const graphRepo = { ...repo, files: [] };
+  const commit = { oid: oid(3), parents: [oid(2)], parent: oid(2), author: 'Dev', email: 'dev@example.invalid', timestamp: 1700000000, message: 'Commit 3', files: [{ id: '62', path: 'README.md', oldPath: null, oldId: null, status: 'M' }], shallow: false };
+  const graphTab = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await graphTab.addInitScript(mockTauri, { ...responses, open_repository: graphRepo, get_status: graphRepo, get_commit: commit, get_commit_diff: { text: diff, truncated: false, binary: false }, compare_commits: { text: diff, truncated: false, binary: false }, rebase_plan_from: { base: '', commits: [1, 2, 3].map(n => ({ oid: oid(n), message: 'Commit ' + n })) }, rewrite_commits: graphRepo, reword_commit: graphRepo, batch_commits: graphRepo, 'plugin:dialog|message': 'Ok' });
+  await graphTab.addInitScript(() => {
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    window.graphCalls = [];
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => { window.graphCalls.push({ command, args }); return invoke(command, args); };
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: async value => { window.copiedShas = value; } } });
+  });
+  try {
+    await graphTab.goto(server.resolvedUrls.local[0]);
+    const row = n => graphTab.locator(`tr[data-oid="${oid(n)}"] .subject`);
+    await row(3).waitFor();
+    await row(2).click({ modifiers: ['Control'] });
+    assert.equal(await graphTab.locator('#graph-selection-count').textContent(), '2 selected');
+    await graphTab.locator('#graph-compare').click();
+    await graphTab.locator('#commit-full-diff .diff-line').first().waitFor();
+    assert.deepEqual(await graphTab.evaluate(() => window.graphCalls.find(c => c.command === 'compare_commits').args), { repoId: 1, from: oid(2), to: oid(3) });
+    assert.ok((await graphTab.locator('#commit-diff-dialog').boundingBox()).width >= 1216);
+    await graphTab.locator('#commit-diff-dialog').getByRole('button', { name: 'Close', exact: true }).click();
+    await row(3).click({ button: 'right' });
+    await graphTab.getByRole('menuitem', { name: 'Copy 2 SHAs', exact: true }).click();
+    assert.equal(await graphTab.evaluate(() => window.copiedShas), oid(3) + '\n' + oid(2));
+    await row(3).click(); await row(1).click({ modifiers: ['Shift'] });
+    assert.equal(await graphTab.locator('tr.selected').count(), 3);
+    await graphTab.locator('#graph-actions-button').click();
+    await graphTab.getByRole('menuitem', { name: 'Squash 3 commits into one…', exact: true }).click();
+    await graphTab.locator('#rebase-dialog[open]').waitFor();
+    assert.deepEqual(await graphTab.locator('#rebase-commits select').evaluateAll(nodes => nodes.map(n => n.value)), ['pick', 'squash', 'squash']);
+    assert.match(await graphTab.locator('#rebase-result').textContent(), /1 resulting commit/);
+    assert.equal(await graphTab.locator('#rebase-published').isChecked(), false);
+    await graphTab.locator('#rebase-apply').click();
+    await graphTab.waitForFunction(() => window.graphCalls.some(c => c.command === 'rewrite_commits'));
+    assert.equal(await graphTab.evaluate(() => window.graphCalls.find(c => c.command === 'rewrite_commits').args.allowPublished), false);
+    await graphTab.waitForFunction(() => document.getElementById('app').getAttribute('aria-busy') === 'false');
+    await graphTab.locator('#graph-actions-button').click();
+    await graphTab.getByRole('menuitem', { name: 'Cherry-pick 3 commits', exact: true }).click();
+    await graphTab.waitForFunction(() => window.graphCalls.some(c => c.command === 'batch_commits'));
+    assert.equal(await graphTab.evaluate(() => window.graphCalls.find(c => c.command === 'batch_commits').args.oids.length), 3);
+    await graphTab.waitForFunction(() => document.getElementById('app').getAttribute('aria-busy') === 'false');
+    await row(3).click();
+    await graphTab.locator('#graph-actions-button').click();
+    await graphTab.getByRole('menuitem', { name: 'Reword commit…', exact: true }).click();
+    await graphTab.locator('#reword-dialog[open]').waitFor();
+    assert.equal(await graphTab.locator('#reword-published').isChecked(), false);
+    await graphTab.locator('#reword-message').fill('Changed message');
+    await graphTab.locator('#reword-dialog').getByRole('button', { name: 'Reword commit', exact: true }).click();
+    await graphTab.waitForFunction(() => window.graphCalls.some(c => c.command === 'reword_commit'));
+    assert.equal(await graphTab.evaluate(() => window.graphCalls.find(c => c.command === 'reword_commit').args.message), 'Changed message');
+    await graphTab.waitForFunction(() => document.getElementById('app').getAttribute('aria-busy') === 'false');
+    await graphTab.locator('#details-button').click();
+    await graphTab.locator('#detail-file').selectOption('62');
+    await graphTab.locator('#detail-file-open').click();
+    await graphTab.locator('#commit-full-diff .diff-line').first().waitFor();
+    assert.match(await graphTab.locator('#commit-diff-title').textContent(), /README.md/);
+    assert.equal(await graphTab.locator('#commit-diff-dialog').evaluate(d => d.scrollWidth > d.clientWidth), false);
+    await graphTab.screenshot({ path: 'test-results/ui-graph-file-diff.png' });
+  } finally { await graphTab.close(); }
+});
+
+test('an interactive rebase Edit stop exposes amend and Continue alongside the merged controls', async () => {
+  const paused = { ...repo, branch: null, detached: true, rebaseEdit: true, operation: 'rebase', files: [] };
+  const editTab = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await editTab.addInitScript(mockTauri, { ...responses, open_repository: paused, get_status: paused, get_commit: { oid: oid(3), message: 'Paused commit', files: [], parents: [oid(2)], parent: oid(2), author: 'Dev', email: 'dev@example.invalid', timestamp: 1700000000, shallow: false }, amend_rebase_commit: paused, finish_operation: { ...repo, files: [] } });
+  await editTab.addInitScript(() => {
+    const invoke = window.__TAURI_INTERNALS__.invoke; window.editCalls = [];
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => { window.editCalls.push({ command, args }); return invoke(command, args); };
+  });
+  try {
+    await editTab.goto(server.resolvedUrls.local[0]);
+    await editTab.locator('#rebase-edit-amend').waitFor();
+    assert.equal(await editTab.locator('#file-tree-toggle').count(), 1);
+    await editTab.locator('#rebase-edit-amend').click();
+    await editTab.locator('#rebase-edit-dialog[open]').waitFor();
+    await editTab.locator('#rebase-edit-message').fill('Amended paused commit');
+    await editTab.locator('#rebase-edit-dialog').getByRole('button', { name: 'Amend commit', exact: true }).click();
+    await editTab.waitForFunction(() => window.editCalls.some(c => c.command === 'amend_rebase_commit'));
+    await editTab.waitForFunction(() => document.getElementById('app').getAttribute('aria-busy') === 'false');
+    await editTab.locator('#operation-continue').click();
+    await editTab.waitForFunction(() => window.editCalls.some(c => c.command === 'finish_operation'));
+    assert.equal(await editTab.evaluate(() => window.editCalls.find(c => c.command === 'finish_operation').args.abort), false);
+  } finally { await editTab.close(); }
+});

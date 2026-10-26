@@ -871,6 +871,97 @@ async fn clean_commits(
     })
     .await
 }
+#[tauri::command]
+async fn rebase_plan_from(
+    repo_id: u64,
+    oid: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<git::RebasePlan> {
+    task(state, false, move |b| {
+        b.rebase_plan_from(repo_id, &oid, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn rewrite_commits(
+    repo_id: u64,
+    base: String,
+    commits: Vec<git::RebaseEdit>,
+    allow_published: bool,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.with_undo(repo_id, "Clean up commits", |b| {
+            b.rewrite_commits(repo_id, &base, commits, allow_published, &token)
+        })
+    })
+    .await
+}
+#[tauri::command]
+async fn batch_commits(
+    repo_id: u64,
+    oids: Vec<String>,
+    revert: bool,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.with_undo(
+            repo_id,
+            if revert {
+                "Revert commits"
+            } else {
+                "Cherry-pick commits"
+            },
+            |b| b.batch_commits(repo_id, oids, revert, &token),
+        )
+    })
+    .await
+}
+#[tauri::command]
+async fn compare_commits(
+    repo_id: u64,
+    from: String,
+    to: String,
+    state: State<'_, AppState>,
+) -> git::Result<git::Preview> {
+    task(state, false, move |b| {
+        b.compare_commits(repo_id, &from, &to)
+    })
+    .await
+}
+#[tauri::command]
+async fn amend_rebase_commit(
+    repo_id: u64,
+    message: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.with_undo(repo_id, "Amend paused commit", |b| {
+            b.amend_rebase_commit(repo_id, &message, &token)
+        })
+    })
+    .await
+}
+#[tauri::command]
+async fn reword_commit(
+    repo_id: u64,
+    oid: String,
+    message: String,
+    allow_published: bool,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.with_undo(repo_id, "Reword commit", |b| {
+            b.reword_commit(repo_id, &oid, &message, allow_published, &token)
+        })
+    })
+    .await
+}
 const RELEASES: &str = "https://github.com/MDHaarith/GitGUI/releases";
 /// Newest published release as (version, page URL), read from the GitHub API through curl.
 #[tauri::command]
@@ -1077,6 +1168,12 @@ pub fn run() {
             checkout_remote,
             rebase_plan,
             clean_commits,
+            rebase_plan_from,
+            rewrite_commits,
+            reword_commit,
+            batch_commits,
+            amend_rebase_commit,
+            compare_commits,
             stage_hunk,
             stage_lines,
             merge_ref,

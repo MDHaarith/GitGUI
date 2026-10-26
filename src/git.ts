@@ -5,16 +5,16 @@ export interface Commit { oid: string; shortOid: string; parents: string[]; subj
 export interface GraphPage { graphId: number; commits: Commit[]; refs: RefInfo[]; head: string | null; hasMore: boolean }
 export interface FileInfo { id: string; path: string; oldPath: string | null; oldId: string | null; index: string; worktree: string; untracked: boolean; conflicted: boolean; submodule: boolean }
 export interface RemoteInfo { id: string; name: string; url: string }
-export interface RepoInfo { id: number; root: string; branch: string | null; head: string | null; detached: boolean; upstream: string | null; ahead: number; behind: number; operation: string | null; remotes: RemoteInfo[]; files: FileInfo[]; token: string; version: string | null; versioning: boolean; refsToken: string }
+export interface RepoInfo { id: number; root: string; branch: string | null; head: string | null; detached: boolean; upstream: string | null; ahead: number; behind: number; operation: string | null; rebaseEdit?: boolean; remotes: RemoteInfo[]; files: FileInfo[]; token: string; version: string | null; versioning: boolean; refsToken: string }
 export interface MergeVersions { base: string | null; ours: string | null; theirs: string | null; working: string; rebasing: boolean; token: string }
 export interface Preview { text: string; truncated: boolean; binary: boolean }
 export interface CommitFile { id: string; path: string; oldPath: string | null; oldId: string | null; status: string }
 export interface CommitDetails { oid: string; parents: string[]; author: string; email: string; timestamp: number; message: string; parent: string | null; files: CommitFile[]; shallow: boolean }
 export interface RebaseCommit { oid: string; message: string }
-export interface RebaseEdit extends RebaseCommit { action: 'pick' | 'reword' | 'squash' | 'fixup' | 'drop' }
+export interface RebaseEdit extends RebaseCommit { action: 'pick' | 'edit' | 'reword' | 'squash' | 'fixup' | 'drop' }
 export interface RebasePlan { base: string; commits: RebaseCommit[] }
 
-export interface Checkpoint { oid: string; timestamp: number; label: string; summary: string }
+export interface Checkpoint { oid: string; timestamp: number; label: string; summary: string; historyHead?: string | null }
 export interface SessionFile { path: string; status: string; added: number; deleted: number }
 export interface Session { checkpoint: Checkpoint | null; files: SessionFile[] }
 export interface Stash { index: number; timestamp: number; message: string }
@@ -84,6 +84,12 @@ export const api = {
   dropStash: (repoId: number, stash: Stash, token: string) => invoke<RepoInfo>('drop_stash', { repoId, index: stash.index, message: stash.message, token }),
   clone: (url: string, parent: string, progress: (message: string) => void) => invoke<RepoInfo>('clone_repository', { url, parent, onProgress: new Channel<string>(progress) }),
   checkoutRemote: (repoId: number, referenceId: string, token: string) => invoke<RepoInfo>('checkout_remote', { repoId, referenceId, token }),
+  rewordCommit: (repoId: number, oid: string, message: string, allowPublished: boolean, token: string) => invoke<RepoInfo>('reword_commit', { repoId, oid, message, allowPublished, token }),
+  rebasePlanFrom: (repoId: number, oid: string, token: string) => invoke<RebasePlan>('rebase_plan_from', { repoId, oid, token }),
+  rewriteCommits: (repoId: number, base: string, commits: RebaseEdit[], allowPublished: boolean, token: string) => invoke<RepoInfo>('rewrite_commits', { repoId, base, commits, allowPublished, token }),
+  batchCommits: (repoId: number, oids: string[], revert: boolean, token: string) => invoke<RepoInfo>('batch_commits', { repoId, oids, revert, token }),
+  compareCommits: (repoId: number, from: string, to: string) => invoke<Preview>('compare_commits', { repoId, from, to }),
+  amendRebaseCommit: (repoId: number, message: string, token: string) => invoke<RepoInfo>('amend_rebase_commit', { repoId, message, token }),
   rebasePlan: (repoId: number, token: string) => invoke<RebasePlan>('rebase_plan', { repoId, token }),
   cleanCommits: (repoId: number, base: string, commits: RebaseEdit[], token: string) => invoke<RepoInfo>('clean_commits', { repoId, base, commits, token }),
   stageLines: (repoId: number, fileId: string, lines: number[], expected: string, unstage: boolean, token: string) => invoke<RepoInfo>('stage_lines', { repoId, fileId, lines, expected, unstage, token }),

@@ -25,12 +25,14 @@ pub use commit_options::CommitOptions;
 mod daily;
 mod files;
 pub mod github;
+mod graph_actions;
 mod history;
 pub mod mcp;
 mod merge;
 pub mod output_log;
 mod process;
 mod rebase;
+mod reword;
 mod share;
 mod time_machine;
 mod undo;
@@ -118,6 +120,7 @@ pub struct RepoInfo {
     pub ahead: u64,
     pub behind: u64,
     pub operation: Option<String>,
+    pub rebase_edit: bool,
     pub remotes: Vec<RemoteInfo>,
     pub files: Vec<FileInfo>,
     pub token: String,
@@ -160,6 +163,8 @@ pub struct Checkpoint {
     pub timestamp: i64,
     pub label: String,
     pub summary: String,
+    #[serde(rename = "historyHead")]
+    pub history_head: Option<String>,
 }
 const CHECKPOINTS: &str = "refs/gitgui/checkpoints";
 const CHECKPOINT_LIMIT: usize = 100;
@@ -305,8 +310,23 @@ impl Backend {
         let repo = self.repo(id)?;
         let info = repo.checked(token)?;
         repo.require_normal(&info)?;
-        if !repo.checkpoint_list()?.iter().any(|c| c.oid == oid) {
-            return Err("That checkpoint no longer exists. Refresh the list.".into());
+        let checkpoint = repo
+            .checkpoint_list()?
+            .into_iter()
+            .find(|c| c.oid == oid)
+            .ok_or("That checkpoint no longer exists. Refresh the list.")?;
+        if let Some(head) = checkpoint.history_head {
+            if info.detached || !info.files.is_empty() {
+                return Err("Switch to a branch and save, commit, or stash changes before restoring history.".into());
+            }
+            let paths: Vec<_> = repo
+                .commit_paths(&head, info.head.as_deref())?
+                .into_values()
+                .collect();
+            repo.protect_ignored(&paths)?;
+            repo.save_history_checkpoint("Before restoring history")?;
+            repo.write(&argv(&["reset", "--keep", &head]), None, None, None)?;
+            return repo.info();
         }
         repo.save_checkpoint("Before restoring a checkpoint")?;
         repo.write(
@@ -822,7 +842,7 @@ impl Repository {
             .collect())
     }
     fn checkpoint_list(&self) -> Result<Vec<Checkpoint>> {
-        let output = read(&self.root, &argv(&["for-each-ref", "--sort=-refname", "--format=%(objectname)%00%(committerdate:unix)%00%(contents:subject)%00%(contents:body)%00", CHECKPOINTS]))?;
+        let output = read(&self.root, &argv(&["for-each-ref", "--sort=-refname", "--format=%(objectname)%00%(committerdate:unix)%00%(contents:subject)%00%(contents:body)%00%(refname)%00%(parent)%00", CHECKPOINTS]))?;
         Ok(text(&output)
             .split("\0\n")
             .filter_map(|record| {
@@ -832,6 +852,8 @@ impl Repository {
                     timestamp: f[1].parse().unwrap_or(0),
                     label: f[2].to_owned(),
                     summary: f[3].trim().to_owned(),
+                    history_head: (f.len() >= 6 && f[4].ends_with("-history"))
+                        .then(|| f[5].to_owned()),
                 })
             })
             .collect())
@@ -933,6 +955,7 @@ impl Repository {
             upstream,
             ahead,
             behind,
+            rebase_edit: self.metadata("rebase-merge/amend")?.exists(),
             operation,
             remotes,
             files,

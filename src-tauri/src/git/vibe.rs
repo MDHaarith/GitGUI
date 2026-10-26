@@ -398,7 +398,7 @@ impl Backend {
         if abort {
             repo.save_checkpoint(&format!("Before aborting {operation}"))?;
         }
-        repo.write(
+        let result = repo.write(
             &argv(&[
                 "-c",
                 "core.editor=true",
@@ -408,8 +408,12 @@ impl Backend {
             None,
             None,
             None,
-        )?;
-        repo.info()
+        );
+        match result {
+            Ok(()) => repo.info(),
+            Err(_) if repo.info()?.files.iter().any(|f| f.conflicted) => repo.info(),
+            Err(error) => Err(error),
+        }
     }
 
     /// Moves the last commit's changes back to staged, unless it was already pushed.
