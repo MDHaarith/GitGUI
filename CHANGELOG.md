@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.25.0 — 2026-10-26
+- Stage or unstage individual lines: click or Shift-click changed lines in either diff view
+- Changes can be shown as a collapsible folder tree with file counts; the choice is remembered
+- Commit form adds Sign off, a different author, and Commit & Push
+
 ## 0.24.0 — 2026-10-26
 - GitHub hub (through gh): pull requests with filters, checks, reviewers and file diffs; check out a PR without leaving your branch; merge, squash or rebase after confirming
 - Review pull requests with inline comments, submitted together as Comment, Approve or Request changes

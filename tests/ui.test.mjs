@@ -67,6 +67,11 @@ after(async () => { await browser?.close(); await server?.close(); });
 test('the fake repository renders with branches, remote actions, and three commits', async () => {
   assert.equal(await tab.locator('#history-rows tr').count(), 3);
   assert.equal(await tab.locator('#ref-list .ref-item[data-kind="remote"]').count(), 2);
+  for (const name of ['origin/main', 'origin/feature']) {
+    await tab.getByRole('button', { name: 'Actions for ' + name, exact: true }).click();
+    assert.equal(await tab.getByRole('menuitem', { name: 'Check out', exact: true }).count(), 1);
+    await tab.keyboard.press('Escape');
+  }
 });
 
 test('the progress bar never covers the repository picker', async () => {
@@ -84,7 +89,7 @@ test('tips sit apart from the workspace', async () => {
 
 test('commit form controls do not overlap', async () => {
   await tab.click('#changes-button');
-  const ids = ['#summary', '#body', '#ai-message', '#ai-explain', '#ai-settings', '#amend', '#bump', '#commit-button'];
+  const ids = ['#summary', '#body', '#ai-message', '#ai-explain', '#ai-settings', '#amend', '#signoff', '#commit-author', '#bump', '#commit-button', '#commit-push'];
   const boxes = await Promise.all(ids.map(id => tab.locator(id).boundingBox()));
   for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
     if (boxes[i] && boxes[j]) assert.ok(!overlap(boxes[i], boxes[j]), `${ids[i]} overlaps ${ids[j]}`);
@@ -100,6 +105,90 @@ test('working diffs offer hunk staging, word highlights, and a side-by-side view
   mkdirSync('test-results', { recursive: true });
   await tab.screenshot({ path: 'test-results/ui-changes.png' });
   await tab.locator('.working-preview .diff-toggle').click();
+});
+
+test('changed lines select by click and Shift-click in unified and split diffs', async () => {
+  await tab.evaluate(repo => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    window.stagingCalls = [];
+    window.restoreStagingInvoke = () => { window.__TAURI_INTERNALS__.invoke = original; };
+    window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === 'stage_lines') { window.stagingCalls.push(args); return structuredClone(repo); }
+      return original(cmd, args);
+    };
+  }, repo);
+  try {
+    for (const split of [false, true]) {
+      if (split) await tab.locator('.working-preview .diff-toggle').click();
+      await tab.locator('#working-diff [data-diff-line="5"]').click();
+      await tab.locator('#working-diff [data-diff-line="6"]').click({ modifiers: ['Shift'] });
+      assert.equal(await tab.locator('#working-diff [aria-pressed="true"]').count(), 2);
+      await tab.getByRole('button', { name: 'Stage lines (2)', exact: true }).click();
+      await tab.waitForFunction(() => !document.querySelector('#operation-feedback:not([hidden])'));
+    }
+    const calls = await tab.evaluate(() => window.stagingCalls);
+    assert.equal(calls.length, 2);
+    for (const call of calls) { assert.deepEqual(call.lines, [5, 6]); assert.equal(call.expected, diff); assert.equal(call.unstage, false); }
+    await tab.locator('.working-preview .diff-toggle').click();
+    await tab.locator('button.file-name', { hasText: 'src/app.ts' }).click();
+    await tab.locator('#working-diff [data-diff-line="6"]').press('Space');
+    await tab.getByRole('button', { name: 'Unstage lines (1)', exact: true }).click();
+    await tab.waitForFunction(() => !document.querySelector('#operation-feedback:not([hidden])'));
+    assert.equal(await tab.evaluate(() => window.stagingCalls.at(-1).unstage), true);
+  } finally { await tab.evaluate(() => window.restoreStagingInvoke()); }
+});
+
+test('folder view counts files, collapses folders, and remembers the view choice', async () => {
+  await tab.click('#file-tree-toggle');
+  assert.equal(await tab.evaluate(() => localStorage.getItem('fileTree')), '1');
+  const folder = tab.locator('.file-folder').first();
+  assert.equal(await folder.locator('summary').textContent(), 'src · 1');
+  assert.equal(await folder.locator('button.file-name').textContent(), '\u200eapp.ts\u200e');
+  await folder.locator('summary').click();
+  assert.equal(await folder.getAttribute('open'), null);
+  await tab.locator('button.file-name', { hasText: 'README.md' }).click();
+  assert.equal(await tab.locator('.file-folder').first().getAttribute('open'), null);
+  await tab.reload(); await tab.locator('#history-rows tr').first().waitFor();
+  await tab.click('#changes-button');
+  assert.equal(await tab.locator('#file-tree-toggle').getAttribute('aria-pressed'), 'true');
+  await tab.click('#file-tree-toggle');
+});
+
+test('Commit & Push sends author and signoff, and never pushes after a failed commit', async () => {
+  await tab.evaluate(repo => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    window.commitCalls = []; window.failCommit = true;
+    window.restoreCommitInvoke = () => { window.__TAURI_INTERNALS__.invoke = original; };
+    window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === 'create_commit' || cmd === 'push_remote') {
+        window.commitCalls.push([cmd, args]);
+        if (cmd === 'create_commit' && window.failCommit) throw new Error('pre-commit hook failed');
+        return { ...structuredClone(repo), head: '4'.repeat(40), files: [], token: 'committed' };
+      }
+      return original(cmd, args);
+    };
+  }, repo);
+  try {
+    await tab.fill('#summary', 'A signed commit'); await tab.fill('#commit-author', 'Other Author <other@example.invalid>'); await tab.check('#signoff');
+    await tab.click('#commit-push');
+    await tab.locator('#error:not([hidden])').waitFor();
+    await tab.waitForFunction(() => !document.querySelector('#operation-feedback:not([hidden])'));
+    assert.deepEqual(await tab.evaluate(() => window.commitCalls.map(([cmd]) => cmd)), ['create_commit']);
+    assert.equal(await tab.inputValue('#summary'), 'A signed commit');
+    assert.equal(await tab.isChecked('#signoff'), true);
+    await tab.evaluate(() => { window.failCommit = false; });
+    await tab.click('#commit-push');
+    await tab.waitForFunction(() => window.commitCalls.some(([cmd]) => cmd === 'push_remote'));
+    await tab.waitForFunction(() => !document.querySelector('#operation-feedback:not([hidden])'));
+    const calls = await tab.evaluate(() => window.commitCalls);
+    assert.deepEqual(calls.map(([cmd]) => cmd), ['create_commit', 'create_commit', 'push_remote']);
+    assert.deepEqual(calls[1][1].options, { signoff: true, author: 'Other Author <other@example.invalid>' });
+    assert.equal(calls[2][1].token, 'committed');
+    assert.equal(await tab.inputValue('#summary'), '');
+  } finally {
+    await tab.evaluate(() => window.restoreCommitInvoke()); await tab.click('#refresh');
+    await tab.waitForFunction(() => !document.querySelector('#operation-feedback:not([hidden])'));
+  }
 });
 
 test('the code map draws files, links them, and searches symbols', async () => {

@@ -200,7 +200,11 @@ fn paths_are_literal_and_non_utf8_names_remain_addressable() {
     assert_eq!(info.files.len(), names.len());
     let ids: Vec<_> = info.files.iter().map(|file| file.id.clone()).collect();
     for id in &ids {
-        assert_eq!(b.working_diff(info.id, id, false).unwrap().text, "data\n");
+        assert!(b
+            .working_diff(info.id, id, false)
+            .unwrap()
+            .text
+            .ends_with("+data\n"));
     }
     let staged = b.stage(info.id, &ids, false, &info.token).unwrap();
     b.commit(

@@ -186,6 +186,7 @@ async fn stage_files(
     .await
 }
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn create_commit(
     repo_id: u64,
     message: String,
@@ -193,10 +194,19 @@ async fn create_commit(
     detached_ok: bool,
     bump: Option<String>,
     amend: bool,
+    options: Option<git::CommitOptions>,
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
-        b.commit(repo_id, &message, &token, detached_ok, bump, amend)
+        b.commit_with_options(
+            repo_id,
+            &message,
+            &token,
+            detached_ok,
+            bump,
+            amend,
+            options.unwrap_or_default(),
+        )
     })
     .await
 }
@@ -536,6 +546,21 @@ async fn stage_hunk(
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
         b.stage_hunk(repo_id, &file_id, hunk, &header, unstage, &token)
+    })
+    .await
+}
+#[tauri::command]
+async fn stage_lines(
+    repo_id: u64,
+    file_id: String,
+    lines: Vec<usize>,
+    expected: String,
+    unstage: bool,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        b.stage_lines(repo_id, &file_id, &lines, &expected, unstage, &token)
     })
     .await
 }
@@ -927,6 +952,7 @@ pub fn run() {
             rebase_plan,
             clean_commits,
             stage_hunk,
+            stage_lines,
             merge_ref,
             apply_commit,
             create_tag,

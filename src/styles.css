@@ -414,3 +414,15 @@ dialog::backdrop { background: rgb(0 0 0 / .8); backdrop-filter: blur(6px); }
 @media (pointer: coarse) { .ref-more { opacity: 1; } }
 /* Narrow windows: sync buttons show icons only so the window controls always fit. */
 @media (max-width: 1500px) { .toolbar-actions .label { display: none; } }
+
+.file-folder { padding-left: 12px; min-width: 0; }
+.file-folder > summary { cursor: pointer; color: var(--ink-muted); font-size: 12px; padding: 4px 0; overflow-wrap: anywhere; }
+.file-folder > summary:focus-visible, .diff-text[data-diff-line]:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+#file-tree-toggle[aria-pressed="true"] { background: var(--surface-3); }
+.line-staging { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; font: 12px Geist, system-ui, sans-serif; white-space: normal; }
+.line-staging button { height: 28px; padding: 0 8px; font-size: 12px; border: 1px solid var(--edge-strong); }
+.diff-text[data-diff-line] { cursor: pointer; }
+.diff-text[data-diff-line][aria-pressed="true"] { background: var(--surface-4); outline: 1px solid var(--edge-strong); }
+.composer .commit-row:has(#commit-push) { flex-wrap: wrap; }
+#commit-push { font-size: 12px; padding-inline: 8px; }
+.composer .amend-row input { width: auto; }

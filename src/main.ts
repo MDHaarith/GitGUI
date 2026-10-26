@@ -13,6 +13,8 @@ import { wireGithub } from './github.ts';
 import { aiCost, explainCrash, explainError, explainState, sortByRisk } from './explain.ts';
 import { forgetRecent, isUnavailable, parseRecent, rememberRecent } from './recent.ts';
 import { summaryHint } from './commit.ts';
+import { wireLineStaging } from './line-staging.ts';
+import { folderParents } from './file-tree.ts';
 import { markup } from './template.ts';
 import { PRESETS, STARTER_RULES } from './ai.ts';
 import './styles.css';
@@ -92,10 +94,10 @@ function renderRecentRepositories() {
   control.title = busy ? 'Wait for the current Git operation to finish.' : 'Switch to a recently opened repository';
 }
 function draftKey() { return 'draft:' + (repo?.root ?? ''); }
-function saveDraft() { if (repo) save(draftKey(), JSON.stringify({ summary: input('summary').value, body: get<HTMLTextAreaElement>('body').value })); }
+function saveDraft() { if (repo) save(draftKey(), JSON.stringify({ summary: input('summary').value, body: get<HTMLTextAreaElement>('body').value, author: input('commit-author').value, signoff: input('signoff').checked })); }
 function restoreDraft() {
-  input('summary').value = ''; get<HTMLTextAreaElement>('body').value = '';
-  try { const value = JSON.parse(stored(draftKey()) ?? '{}'); input('summary').value = typeof value.summary === 'string' ? value.summary : ''; get<HTMLTextAreaElement>('body').value = typeof value.body === 'string' ? value.body : ''; } catch { /* Ignore a malformed saved draft. */ }
+  input('summary').value = ''; get<HTMLTextAreaElement>('body').value = ''; input('commit-author').value = ''; input('signoff').checked = false;
+  try { const value = JSON.parse(stored(draftKey()) ?? '{}'); input('summary').value = typeof value.summary === 'string' ? value.summary : ''; get<HTMLTextAreaElement>('body').value = typeof value.body === 'string' ? value.body : ''; input('commit-author').value = typeof value.author === 'string' ? value.author : ''; input('signoff').checked = value.signoff === true; } catch { /* Ignore a malformed saved draft. */ }
   renderSummaryHint();
 }
 function renderSummaryHint() {
@@ -132,6 +134,7 @@ function updateControls() {
   disable('load-more', unavailable || (limit >= 10000 ? '10,000 commits loaded. Choose a narrower history scope.' : ''));
   const amend = input('amend').checked;
   disable('commit-button', blocked || (amend && !repo?.head ? 'There is no commit to amend yet.' : !amend && !stagedFiles().length ? 'Stage at least one file before committing.' : !input('summary').value.trim() ? 'Enter a commit summary.' : ''));
+  disable('commit-push', button('commit-button').disabled ? button('commit-button').title : !repo?.branch ? 'Switch to a local branch before pushing.' : '');
   disable('switch-branch', blocked || (!select('branch-select').value ? 'Choose a local branch.' : ''));
   const chosen = page?.refs.find(ref => ref.id === select('branch-select').value);
   const newName = input('branch-rename').value.trim();
@@ -502,7 +505,8 @@ async function closeRepository(item: RepoInfo) {
 }
 let splitDiff = stored('diffSplit') === '1';
 type LineAction = (line: number, side: 'LEFT' | 'RIGHT') => void;
-const shownPreviews = new Map<string, [Preview, ((hunk: number, header: string) => void) | undefined, LineAction | undefined]>();
+type LinesAction = (lines: number[]) => void;
+const shownPreviews = new Map<string, [Preview, ((hunk: number, header: string) => void) | undefined, LinesAction | undefined, LineAction | undefined]>();
 function lineNumber(value: number | null, side?: 'LEFT' | 'RIGHT', onLine?: LineAction) {
   const number = document.createElement(onLine && value !== null ? 'button' : 'span'); number.className = 'line-number'; number.textContent = value === null ? '' : String(value);
   if (number instanceof HTMLButtonElement && value !== null && side) { number.type = 'button'; number.setAttribute('aria-label', `Comment on ${side === 'LEFT' ? 'old' : 'new'} line ${value}`); number.onclick = () => onLine!(value, side); }
@@ -523,11 +527,17 @@ function diffText(line: DiffLine | null, other?: DiffLine) {
   text.textContent = line.text || ' '; return text;
 }
 /** Renders a diff, unified or side by side; `onHunk` adds a stage/unstage button to each hunk. */
-function previewInto(id: string, preview: Preview, onHunk?: (hunk: number, header: string) => void, hunkLabel = 'Stage hunk', onLine?: LineAction) {
-  shownPreviews.set(id, [preview, onHunk, onLine]);
+function previewInto(id: string, preview: Preview, onHunk?: (hunk: number, header: string) => void, hunkLabel = 'Stage hunk', onLines?: LinesAction, onLine?: LineAction) {
+  shownPreviews.set(id, [preview, onHunk, onLines, onLine]);
   const container = get(id); container.replaceChildren(); container.dataset.hunkLabel = hunkLabel;
   // shortcut: render 5,000 diff lines, add virtualization when larger previews are needed.
   const all = numberDiff(preview.text, preview.binary); const lines = all.slice(0, 5000);
+  const indices = new Map(lines.map((line, index) => [line, index]));
+  const renderText = (line: DiffLine | null, other?: DiffLine) => {
+    const span = diffText(line, other);
+    if (onLines && line && (line.kind === 'added' || line.kind === 'removed')) span.dataset.diffLine = String(indices.get(line));
+    return span;
+  };
   const rows = pairLines(lines); const partner = new Map<DiffLine, DiffLine>();
   for (const [left, right] of rows) if (left && right && left !== right) { partner.set(left, right); partner.set(right, left); }
   const split = splitDiff && lines.some(line => line.kind === 'hunk');
@@ -535,24 +545,25 @@ function previewInto(id: string, preview: Preview, onHunk?: (hunk: number, heade
   const row = (kind: string) => { const span = document.createElement('span'); span.className = 'diff-line ' + kind; container.append(span); return span; };
   let hunk = -1;
   const hunkRow = (line: DiffLine) => {
-    const span = row('hunk wide'); span.append(diffText(line)); const index = ++hunk;
+    const span = row('hunk wide'); span.append(renderText(line)); const index = ++hunk;
     if (!onHunk) return;
-    const action = document.createElement('button'); action.type = 'button'; action.className = 'hunk-action'; action.textContent = hunkLabel; action.disabled = busy;
+    const action = document.createElement('button'); action.type = 'button'; action.className = 'hunk-action'; action.dataset.repo = ''; action.textContent = hunkLabel; action.disabled = busy;
     action.setAttribute('aria-label', hunkLabel + ' ' + (index + 1)); action.onclick = () => onHunk(index, line.text); span.append(action);
   };
   if (!split) {
     for (const line of lines) {
       if (line.kind === 'hunk') hunkRow(line);
-      else row(line.kind).append(lineNumber(line.oldLine, 'LEFT', onLine), lineNumber(line.newLine, 'RIGHT', onLine), diffText(line, partner.get(line)));
+      else row(line.kind).append(lineNumber(line.oldLine, 'LEFT', onLine), lineNumber(line.newLine, 'RIGHT', onLine), renderText(line, partner.get(line)));
     }
   } else {
     for (const [left, right] of rows) {
       if (left === right && left?.kind === 'hunk') hunkRow(left);
-      else if (left === right && left && left.oldLine === null && left.newLine === null) row('wide').append(diffText(left));
-      else row('pair').append(lineNumber(left?.oldLine ?? null, 'LEFT', onLine), diffText(left, left ? partner.get(left) : undefined), lineNumber(right?.newLine ?? null, 'RIGHT', onLine), diffText(right, right ? partner.get(right) : undefined));
+      else if (left === right && left && left.oldLine === null && left.newLine === null) row('wide').append(renderText(left));
+      else row('pair').append(lineNumber(left?.oldLine ?? null, 'LEFT', onLine), renderText(left, left ? partner.get(left) : undefined), lineNumber(right?.newLine ?? null, 'RIGHT', onLine), renderText(right, right ? partner.get(right) : undefined));
     }
   }
   if (preview.truncated || all.length > 5000) { const note = document.createElement('span'); note.className = 'diff-line note'; note.textContent = 'Preview truncated. Inspect the complete diff in Git for the remaining content.'; container.append(note); }
+  if (onLines) wireLineStaging(container, onLines, hunkLabel.replace('hunk', 'lines'), () => busy || !normal());
   if (!preview.text) container.textContent = 'No differences to display.';
 }
 document.querySelectorAll<HTMLButtonElement>('.diff-toggle').forEach(toggle => {
@@ -560,7 +571,7 @@ document.querySelectorAll<HTMLButtonElement>('.diff-toggle').forEach(toggle => {
   toggle.onclick = () => {
     splitDiff = !splitDiff; save('diffSplit', splitDiff ? '1' : '0');
     document.querySelectorAll('.diff-toggle').forEach(other => other.setAttribute('aria-pressed', String(splitDiff)));
-    for (const [id, [preview, onHunk, onLine]] of shownPreviews) if (get(id)?.querySelector('.diff-line')) previewInto(id, preview, onHunk, get(id).dataset.hunkLabel, onLine);
+    for (const [id, [preview, onHunk, onLines, onLine]] of shownPreviews) if (get(id)?.querySelector('.diff-line')) previewInto(id, preview, onHunk, get(id).dataset.hunkLabel, onLines, onLine);
   };
 });
 async function openDetails(oid = selected, parent: string | null = null) {
@@ -953,6 +964,9 @@ async function startRun() {
   finally { running = false; button('run-start').disabled = false; button('run-stop').disabled = true; button('run-button').textContent = 'Run'; }
 }
 
+let treeFiles = stored('fileTree') === '1';
+button('file-tree-toggle').setAttribute('aria-pressed', String(treeFiles));
+button('file-tree-toggle').onclick = () => { treeFiles = !treeFiles; save('fileTree', treeFiles ? '1' : '0'); button('file-tree-toggle').setAttribute('aria-pressed', String(treeFiles)); renderFiles(); };
 function renderFiles() {
   const list = get('file-list'); list.replaceChildren();
   const groups: [string, FileInfo[], boolean | null][] = [
@@ -983,6 +997,7 @@ function renderFiles() {
     }
     list.append(heading);
     if (!files.length) { const empty = document.createElement('div'); empty.className = 'muted'; empty.textContent = 'None'; empty.style.padding = '4px'; list.append(empty); }
+    const parents = treeFiles ? folderParents(list, files, name) : null;
     for (const file of files) {
       const row = document.createElement('div'); row.className = 'file-row' + (workingFile?.id === file.id && workingFile.staged === !!staged ? ' selected' : '');
       if (staged !== null) {
@@ -992,7 +1007,7 @@ function renderFiles() {
         check.addEventListener('change', () => { if (check.checked) set.add(file.id); else set.delete(file.id); const action = list.querySelector<HTMLButtonElement>('[data-stage-group="' + (staged ? 'staged' : 'unstaged') + '"]'); if (action) action.textContent = (staged ? 'Unstage' : 'Stage') + (set.size ? ' selected' : ' all'); }); row.append(check);
       }
       const kind = document.createElement('span'); kind.className = 'file-kind'; kind.textContent = file.submodule ? 'S' : file.conflicted ? 'U' : file.untracked ? '?' : staged ? file.index : file.worktree; row.append(kind);
-      const nameButton = document.createElement('button'); nameButton.type = 'button'; nameButton.className = 'file-name'; nameButton.dataset.key = (staged ? 's' : 'u') + file.id; nameButton.title = (file.oldPath ? file.oldPath + ' → ' : '') + file.path; nameButton.textContent = '\u200e' + nameButton.title + '\u200e';
+      const nameButton = document.createElement('button'); nameButton.type = 'button'; nameButton.className = 'file-name'; nameButton.dataset.key = (staged ? 's' : 'u') + file.id; nameButton.title = (file.oldPath ? file.oldPath + ' → ' : '') + file.path; nameButton.textContent = '\u200e' + (treeFiles ? file.path.slice(file.path.lastIndexOf('/') + 1) : nameButton.title) + '\u200e';
       nameButton.addEventListener('click', () => { void showWorkingFile(file, !!staged); }); row.append(nameButton);
       if (staged === null) {
         const resolve = document.createElement('button'); resolve.type = 'button'; resolve.textContent = 'Resolve…'; resolve.title = 'Pick yours, theirs, or both for each conflicting block'; resolve.disabled = busy;
@@ -1029,7 +1044,7 @@ function renderFiles() {
         discard.title = 'Throw away these edits (a checkpoint is saved first)'; discard.setAttribute('aria-label', 'Discard changes to ' + file.path);
         discard.disabled = busy || !normal(); discard.addEventListener('click', () => { void discardFiles([file]); }); row.append(discard);
       }
-      list.append(row);
+      (parents?.get(file.id) ?? list).append(row);
     }
   }
   // Keyboard navigation re-renders the list; put focus back on the file the user moved to.
@@ -1040,7 +1055,7 @@ let fileFocus: string | null = null;
 get('file-list').addEventListener('keydown', event => {
   const target = event.target as HTMLElement;
   if (!target.classList.contains('file-name')) return;
-  const names = [...get('file-list').querySelectorAll<HTMLButtonElement>('button.file-name')]; const index = names.indexOf(target as HTMLButtonElement);
+  const names = [...get('file-list').querySelectorAll<HTMLButtonElement>('button.file-name')].filter(node => node.getClientRects().length); const index = names.indexOf(target as HTMLButtonElement);
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     event.preventDefault(); const next = names[index + (event.key === 'ArrowDown' ? 1 : -1)];
     if (next) { fileFocus = next.dataset.key ?? null; next.focus(); next.click(); }
@@ -1163,12 +1178,20 @@ async function refreshWorkingPreview(quiet = false) {
     await refresh(); return;
   }
   const hunks = !file.untracked && !file.oldId && !file.submodule;
-  if (repo?.id === id && request === workingRequest) previewInto('working-diff', preview, hunks ? (hunk, header) => { void stageHunk(file, selection.staged, hunk, header); } : undefined, selection.staged ? 'Unstage hunk' : 'Stage hunk');
+  const selectable = !preview.binary && !preview.truncated && !file.oldId && !file.submodule;
+  if (repo?.id === id && request === workingRequest) previewInto('working-diff', preview, hunks ? (hunk, header) => { void stageHunk(file, selection.staged, hunk, header); } : undefined, selection.staged ? 'Unstage hunk' : 'Stage hunk', selectable ? lines => { void stageLines(file, selection.staged, lines, preview.text); } : undefined);
 }
 async function stageHunk(file: FileInfo, staged: boolean, hunk: number, header: string) {
   if (!repo || busy) return;
   const keep = workingFile;
   await mutate(staged ? 'Unstaging hunk…' : 'Staging hunk…', () => api.stageHunk(repo!.id, file.id, hunk, header, staged, repo!.token));
+  workingFile = keep; renderFiles();
+  await refreshWorkingPreview(true).catch(report);
+}
+async function stageLines(file: FileInfo, staged: boolean, lines: number[], expected: string) {
+  if (!repo || busy) return;
+  const keep = workingFile;
+  await mutate(staged ? 'Unstaging lines…' : 'Staging lines…', () => api.stageLines(repo!.id, file.id, lines, expected, staged, repo!.token));
   workingFile = keep; renderFiles();
   await refreshWorkingPreview(true).catch(report);
 }
@@ -1190,14 +1213,17 @@ async function mutate(label: string, action: () => Promise<RepoInfo>, committed 
     renderInfo(); renderFiles(); await loadGraph(); get('error').hidden = true; notify('Done · repository refreshed');
   }, true);
 }
-async function commitChanges() {
+async function commitChanges(push = false) {
   if (!repo || busy || button('commit-button').disabled) return;
   const message = input('summary').value.trim() + (get<HTMLTextAreaElement>('body').value.trim() ? '\n\n' + get<HTMLTextAreaElement>('body').value.trim() : '');
   let detachedOk = false;
   if (repo.detached) detachedOk = await confirm('HEAD is detached. This commit will not belong to a branch. Continue?', { title: 'Commit on detached HEAD', kind: 'warning' });
   if (repo.detached && !detachedOk) return;
   const amend = input('amend').checked;
-  saveDraft(); await mutate(amend ? 'Amending last commit…' : 'Creating commit…', () => api.commit(repo!.id, message, repo!.token, detachedOk, repo!.versioning ? select('bump').value || null : null, amend), true);
+  let committed = false; const id = repo.id;
+  const options = { signoff: input('signoff').checked, author: input('commit-author').value.trim() || null };
+  saveDraft(); await mutate(amend ? 'Amending last commit…' : 'Creating commit…', async () => { const info = await api.commit(repo!.id, message, repo!.token, detachedOk, repo!.versioning ? select('bump').value || null : null, amend, options); committed = true; return info; }, true);
+  if (push && committed && repo?.id === id) button('push').click();
 }
 function renderStashes(list: Stash[]) {
   const items = list.map(stash => {
@@ -1429,6 +1455,8 @@ button('copy-sha').onclick = async () => {
 };
 input('summary').oninput = () => { saveDraft(); renderSummaryHint(); updateControls(); };
 get<HTMLTextAreaElement>('body').oninput = saveDraft;
+input('commit-author').oninput = saveDraft; input('signoff').onchange = saveDraft;
+button('commit-push').onclick = () => { void commitChanges(true); };
 get<HTMLFormElement>('commit-form').onsubmit = event => { event.preventDefault(); void commitChanges(); };
 input('branch-name').oninput = updateControls;
 select('branch-select').onchange = () => { input('branch-rename').value = page?.refs.find(ref => ref.id === select('branch-select').value)?.name ?? ''; updateControls(); };
@@ -1559,7 +1587,7 @@ window.setInterval(fetchQuietly, 60_000);
 wireGithub({
   repo: () => repo, busy: () => busy,
   confirm: text => confirm(text, { title: 'GitHub', kind: 'warning' }),
-  preview: (id, preview, onLine) => previewInto(id, preview, undefined, undefined, onLine),
+  preview: (id, preview, onLine) => previewInto(id, preview, undefined, undefined, undefined, onLine),
   change: async action => {
     if (busy) throw new Error('Wait for the current Git operation to finish.');
     let failure: unknown;

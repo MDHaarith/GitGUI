@@ -23,6 +23,8 @@ export interface BlameLine { oid: string; author: string; timestamp: number; tex
 export interface Answer { text: string; inputTokens: number; outputTokens: number; provider: string }
 export interface AiProvider { kind: 'claude' | 'openai' | 'command'; baseUrl: string; model: string; apiKey: string; command: string }
 
+export interface CommitOptions { signoff: boolean; author: string | null }
+
 export const api = {
   startup: () => invoke<string | null>('startup_path'),
   open: (path: string) => invoke<RepoInfo>('open_repository', { path }),
@@ -38,7 +40,7 @@ export const api = {
   commitDiff: (repoId: number, oid: string, parent: string | null, fileId: string | null = null) => invoke<Preview>('get_commit_diff', { repoId, oid, parent, fileId }),
   workingDiff: (repoId: number, fileId: string, staged: boolean) => invoke<Preview>('get_working_diff', { repoId, fileId, staged }),
   stage: (repoId: number, fileIds: string[], unstage: boolean, token: string) => invoke<RepoInfo>('stage_files', { repoId, fileIds, unstage, token }),
-  commit: (repoId: number, message: string, token: string, detachedOk: boolean, bump: string | null, amend = false) => invoke<RepoInfo>('create_commit', { repoId, message, token, detachedOk, bump, amend }),
+  commit: (repoId: number, message: string, token: string, detachedOk: boolean, bump: string | null, amend = false, options: CommitOptions = { signoff: false, author: null }) => invoke<RepoInfo>('create_commit', { repoId, message, token, detachedOk, bump, amend, options }),
   createBranch: (repoId: number, name: string, oid: string | null, token: string) => invoke<RepoInfo>('create_branch', { repoId, name, oid, token }),
   switchBranch: (repoId: number, referenceId: string, token: string) => invoke<RepoInfo>('switch_branch', { repoId, referenceId, token }),
   renameBranch: (repoId: number, referenceId: string, name: string, token: string) => invoke<RepoInfo>('rename_branch', { repoId, referenceId, name, token }),
@@ -76,6 +78,7 @@ export const api = {
   checkoutRemote: (repoId: number, referenceId: string, token: string) => invoke<RepoInfo>('checkout_remote', { repoId, referenceId, token }),
   rebasePlan: (repoId: number, token: string) => invoke<RebasePlan>('rebase_plan', { repoId, token }),
   cleanCommits: (repoId: number, base: string, commits: RebaseEdit[], token: string) => invoke<RepoInfo>('clean_commits', { repoId, base, commits, token }),
+  stageLines: (repoId: number, fileId: string, lines: number[], expected: string, unstage: boolean, token: string) => invoke<RepoInfo>('stage_lines', { repoId, fileId, lines, expected, unstage, token }),
   stageHunk: (repoId: number, fileId: string, hunk: number, header: string, unstage: boolean, token: string) => invoke<RepoInfo>('stage_hunk', { repoId, fileId, hunk, header, unstage, token }),
   mergeRef: (repoId: number, referenceId: string, token: string) => invoke<RepoInfo>('merge_ref', { repoId, referenceId, token }),
   applyCommit: (repoId: number, oid: string, revert: boolean, token: string) => invoke<RepoInfo>('apply_commit', { repoId, oid, revert, token }),

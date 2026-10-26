@@ -379,8 +379,8 @@ env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE \
   the current branch and never force-pushes or mirrors other refs.
 - Conflicts are resolved per file or per conflict block (yours, incoming, or both);
   multi-commit sequencer operations must be completed in the terminal.
-- Staging works per file or per hunk, not per line. History search covers up to
-  10,000 loaded commits. Amend and undo refuse commits that were already pushed.
+- Staging works per file, per hunk, or selected changed lines (click or Shift-click).
+  History search covers up to 10,000 loaded commits. Amend and undo refuse commits that were already pushed.
 - The update check only sees published releases, not drafts.
 - Nested submodule operations are outside this release.
 - "Install and restart" replaces the Linux AppImage in place; on macOS and Windows,

@@ -17,7 +17,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod commit_options;
 mod commits;
+mod staging;
+pub use commit_options::CommitOptions;
 mod daily;
 mod files;
 pub mod github;
@@ -333,7 +336,7 @@ impl Backend {
             .ok_or("File changed. Refresh the changes list.")?;
         let path = repo.paths.get(file_id).ok_or("Unknown file")?;
         if file.untracked {
-            return untracked_preview(&repo.root, path);
+            return staging::untracked_diff(&repo.root, path);
         }
         let mut args = argv(&[
             "diff",
@@ -411,6 +414,28 @@ impl Backend {
         bump: Option<String>,
         amend: bool,
     ) -> Result<RepoInfo> {
+        self.commit_with_options(
+            id,
+            message,
+            token,
+            detached_ok,
+            bump,
+            amend,
+            CommitOptions::default(),
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn commit_with_options(
+        &mut self,
+        id: u64,
+        message: &str,
+        token: &str,
+        detached_ok: bool,
+        bump: Option<String>,
+        amend: bool,
+        options: CommitOptions,
+    ) -> Result<RepoInfo> {
+        let options = options.args()?;
         let repo = self.repo(id)?;
         let info = repo.checked(token)?;
         if message.trim().is_empty() || message.len() > 128 * 1024 || message.contains('\0') {
@@ -455,11 +480,12 @@ impl Backend {
             )?;
         }
         // gitgui.amend tells the safeguard hook to compare versions with the parent, not the replaced commit.
-        let args = if amend {
+        let mut args = if amend {
             argv(&["-c", "gitgui.amend=true", "commit", "--amend", "-F", "-"])
         } else {
             argv(&["commit", "-F", "-"])
         };
+        args.extend(options);
         repo.write(&args, Some(message.as_bytes()), None, None)?;
         if let Some(old) = old_head {
             // Version tags still point at the replaced commit: move them by re-running the tagging hook.
