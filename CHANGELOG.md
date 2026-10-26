@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.0 — 2026-10-26
+- Releases add a .deb, a portable Linux .tar.gz, and SHA256SUMS.txt covering every asset
+- One-line installers (scripts/get.sh, scripts/get.ps1) download the latest release and refuse it if the checksum does not match
+- Homebrew cask and winget manifests in packaging/, filled in by scripts/update-packaging.sh
+- The VS Code extension is published to the Marketplace and Open VSX when VSCE_PAT or OVSX_PAT is set
+
 ## 0.20.0 — 2026-10-26
 - VS Code extension (`vscode-extension/`): "Open Repository in GitGUI" from the command palette, Source Control title bar, or Explorer
 - CI tests every push on Linux, macOS, and Windows, and adds the macOS .dmg, Windows installer, and VS Code .vsix to each published release

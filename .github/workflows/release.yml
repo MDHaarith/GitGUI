@@ -29,4 +29,4 @@ jobs:
           releaseName: GitGUI ${{ github.ref_name }}
           releaseBody: See CHANGELOG.md for what changed in this version.
           releaseDraft: true
-          args: --bundles appimage rpm
+          args: --bundles appimage rpm deb

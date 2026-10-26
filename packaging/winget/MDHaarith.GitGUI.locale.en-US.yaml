@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: MDHaarith.GitGUI
+PackageVersion: '@VERSION@'
+PackageLocale: en-US
+Publisher: MDHaarith
+PublisherUrl: https://github.com/MDHaarith
+PackageName: GitGUI
+PackageUrl: https://github.com/MDHaarith/GitGUI
+License: MIT
+ShortDescription: Visual Git history and everyday repository workflows
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

@@ -20,6 +20,27 @@ newer published release.
 
 ## Install
 
+Install the latest release on Linux (x86-64) or macOS (Apple silicon or Intel):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/MDHaarith/GitGUI/GitGUI/scripts/get.sh | sh
+```
+
+On 64-bit Windows, run in PowerShell:
+
+```powershell
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/MDHaarith/GitGUI/GitGUI/scripts/get.ps1).Content))
+```
+
+Both scripts download the latest release and verify its asset against
+`SHA256SUMS.txt` before installing; missing or mismatched checksums stop the
+installation. Linux uses `~/Applications/GitGUI/<version>/AppDir`, the `current`
+symlink and a desktop launcher, keeping the AppImage and checksum beside it.
+macOS copies the app from the universal DMG to `/Applications` (requesting sudo
+if needed); Windows runs the NSIS installer silently. Git must already be on PATH.
+
+To build and install from source instead:
+
 ```sh
 npm install
 npm run install:app
@@ -35,11 +56,19 @@ installed version, and installs the new one:
 - **Windows (Git Bash):** runs the NSIS installer silently.
 
 Or download an installer from the
-[releases page](https://github.com/MDHaarith/GitGUI/releases): an AppImage or RPM
-for Linux, a universal `.dmg` (Apple silicon and Intel) for macOS, and a
-`-setup.exe` for Windows. GitGUI needs Git installed and on PATH
+[releases page](https://github.com/MDHaarith/GitGUI/releases): an AppImage, RPM,
+`.deb` or portable `.tar.gz` for Linux, a universal `.dmg` (Apple silicon and Intel)
+for macOS, and a `-setup.exe` for Windows. GitGUI needs Git installed and on PATH
 ([Git for Windows](https://git-scm.com/download/win) on Windows; on macOS the
 Xcode command line tools or Homebrew Git).
+
+The portable archive contains `gitgui` and license files; extract it and run
+`./gitgui`. It requires the system WebKitGTK 4.1/GTK 3 libraries as well as Git.
+Linux packages built on Fedora may require a newer glibc than older distributions
+provide. `SHA256SUMS.txt` covers all uploaded release assets except itself;
+checksums for macOS, Windows and the VSIX appear when cross-platform CI finishes.
+Homebrew, winget and marketplace submission instructions are in
+[`packaging/README.md`](packaging/README.md).
 
 The macOS and Windows builds are not signed with a paid certificate yet:
 
