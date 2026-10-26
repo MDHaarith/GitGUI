@@ -404,8 +404,20 @@ env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE \
   per scope. Unloaded parents remain visible as continuation paths.
 - Metadata/index reads are limited to 16 MiB. Diff/file previews are limited to
   2 MiB and 5,000 rendered lines, with an explicit truncation notice.
-- Pull requires a clean working tree and uses fast-forward only. Push sends only
-  the current branch and never force-pushes or mirrors other refs.
+- Pull defaults to fast-forward only. A diverged pull offers Merge or Rebase for
+  that pull without changing Git config; blocked pulls and branch switches offer
+  Stash & retry. A conflicting pull or stash pop keeps the stash for recovery.
+- Push sends only the current branch. A non-fast-forward rejection offers an
+  explicitly confirmed force push with a lease on the observed remote commit;
+  Git refuses if that branch changes. Push never mirrors other refs.
+- Branch menus can fetch or fast-forward a branch without checking it out, or
+  reset it to the same-named remote branch after confirmation and a checkpoint.
+  Checked-out branches must be updated from their own worktree. Compare branches
+  in Tools to see commits unique to each side and the common-ancestor-to-B diff.
+- Tools → Worktrees lists, adds and removes linked worktrees and opens them as
+  repository tabs. Close a worktree's tab before removing it. Dirty removal saves
+  a checkpoint and a stash including ignored files; locked worktrees are refused.
+  Branches show their last author, relative date and a stale badge after 90 days.
 - The merge editor reads index stages 1, 2, and 3 for regular UTF-8 text files
   within 2 MiB and 5,000 lines per version. Binary, larger, and symbolic-link
   conflicts can use whole-file Accept Yours / Accept Theirs.
@@ -413,8 +425,7 @@ env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE \
   History search covers up to 10,000 loaded commits. Amend and undo refuse commits that were already pushed.
 - Squash, drop, and interactive cleanup require a linear commit range. Standalone
   reword preserves merge topology. Rewrites refuse published commits by default;
-  opting in warns that the next push needs `git push --force-with-lease` in the
-  terminal. Rewritten commit signatures are removed.
+  opting in warns that the next push needs a confirmed force push with lease. Rewritten commit signatures are removed.
 - The update check only sees published releases, not drafts.
 - Nested submodule operations are outside this release.
 - "Install and restart" replaces the Linux AppImage in place; on macOS and Windows,

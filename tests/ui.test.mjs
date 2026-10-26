@@ -32,6 +32,7 @@ const codeMap = JSON.stringify({
 });
 const responses = {
   startup_path: null, 'plugin:app|version': '0.12.0', latest_release: null, open_repository: repo, get_status: repo,
+  sync_repository: { activity: page.refs.filter(r => r.kind !== 'tag').map(r => ({ id: r.id, author: 'Last Author', timestamp: 1700000000 })), worktrees: [{ id: '776f726b', path: '/tmp/demo-work', branch: 'refs/heads/feature', head: oid(2), bare: false, locked: false, prunable: false }], comparison: { onlyA: { text: 'local commit', truncated: false, binary: false }, onlyB: { text: 'remote commit', truncated: false, binary: false }, diff: { text: diff, truncated: false, binary: false } } },
   get_graph: page, get_health: [], get_working_diff: { text: diff, truncated: false, binary: false }, list_stashes: [], list_checkpoints: [], code_map: codeMap,
 };
 function mockTauri(responses) {
@@ -160,10 +161,11 @@ test('Commit & Push sends author and signoff, and never pushes after a failed co
     window.commitCalls = []; window.failCommit = true;
     window.restoreCommitInvoke = () => { window.__TAURI_INTERNALS__.invoke = original; };
     window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
-      if (cmd === 'create_commit' || cmd === 'push_remote') {
+      if (cmd === 'create_commit' || (cmd === 'sync_repository' && args.request.action === 'push')) {
         window.commitCalls.push([cmd, args]);
         if (cmd === 'create_commit' && window.failCommit) throw new Error('pre-commit hook failed');
-        return { ...structuredClone(repo), head: '4'.repeat(40), files: [], token: 'committed' };
+        const info = { ...structuredClone(repo), head: '4'.repeat(40), files: [], token: 'committed' };
+        return cmd === 'sync_repository' ? { info } : info;
       }
       return original(cmd, args);
     };
@@ -178,12 +180,13 @@ test('Commit & Push sends author and signoff, and never pushes after a failed co
     assert.equal(await tab.isChecked('#signoff'), true);
     await tab.evaluate(() => { window.failCommit = false; });
     await tab.click('#commit-push');
-    await tab.waitForFunction(() => window.commitCalls.some(([cmd]) => cmd === 'push_remote'));
+    await tab.waitForFunction(() => window.commitCalls.some(([cmd]) => cmd === 'sync_repository'));
     await tab.waitForFunction(() => !document.querySelector('#operation-feedback:not([hidden])'));
     const calls = await tab.evaluate(() => window.commitCalls);
-    assert.deepEqual(calls.map(([cmd]) => cmd), ['create_commit', 'create_commit', 'push_remote']);
+    assert.deepEqual(calls.map(([cmd]) => cmd), ['create_commit', 'create_commit', 'sync_repository']);
     assert.deepEqual(calls[1][1].options, { signoff: true, author: 'Other Author <other@example.invalid>' });
-    assert.equal(calls[2][1].token, 'committed');
+    assert.equal(calls[2][1].request.action, 'push');
+    assert.equal(calls[2][1].request.token, 'committed');
     assert.equal(await tab.inputValue('#summary'), '');
   } finally {
     await tab.evaluate(() => window.restoreCommitInvoke()); await tab.click('#refresh');
@@ -303,6 +306,22 @@ test('GitHub hub keeps review drafts local and routes explicit writes through th
   assert.equal(await tab.getByRole('button', { name: 'Check out PR (detached)', exact: true }).count(), 0);
   await tab.screenshot({ path: 'test-results/ui-github.png' });
   await tab.click('#github-close');
+});
+
+test('branch metadata, comparison and worktrees use the existing UI patterns', async () => {
+  assert.equal(await tab.locator('.sync-ref-meta').count(), 4);
+  assert.ok((await tab.locator('.sync-ref-meta').first().textContent()).includes('Last Author'));
+  assert.equal(await tab.locator('.ref-head', { hasText: 'stale' }).count(), 4);
+  await tab.click('#tools-button'); await tab.getByRole('menuitem', { name: 'Compare branches…', exact: true }).click();
+  await tab.locator('#sync-compare-form button[type=submit], #sync-compare-form button.primary').click();
+  await tab.locator('#sync-only-a').getByText('local commit', { exact: true }).waitFor();
+  assert.equal(await tab.locator('#sync-only-b').textContent(), 'remote commit');
+  assert.ok(await tab.locator('#sync-compare-diff .diff-line').count() > 0);
+  await tab.evaluate(() => document.getElementById('sync-compare').close());
+  await tab.click('#tools-button'); await tab.getByRole('menuitem', { name: 'Worktrees…', exact: true }).click();
+  await tab.locator('#sync-worktree-list').getByText('/tmp/demo-work', { exact: true }).waitFor();
+  assert.equal(await tab.locator('#sync-worktree-list').getByRole('button', { name: 'Open in new tab' }).count(), 1);
+  await tab.evaluate(() => document.getElementById('sync-worktrees').close());
 });
 
 test('every dialog fits the window without sideways scrolling', async () => {

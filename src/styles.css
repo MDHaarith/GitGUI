@@ -426,3 +426,10 @@ dialog::backdrop { background: rgb(0 0 0 / .8); backdrop-filter: blur(6px); }
 .composer .commit-row:has(#commit-push) { flex-wrap: wrap; }
 #commit-push { font-size: 12px; padding-inline: 8px; }
 .composer .amend-row input { width: auto; }
+.sync-ref-meta { display: block; overflow: hidden; text-overflow: ellipsis; font-size: 10px; font-weight: 400; color: var(--ink-subtle, #8a8f98); }
+.sync-commit-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.sync-commit-lists section { min-width: 0; }
+.sync-commit-lists pre { max-height: 240px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
+#sync-compare-diff { max-height: 45vh; overflow: auto; }
+#sync-worktree-list .muted { overflow-wrap: anywhere; }
+@media (max-width: 768px) { .sync-commit-lists { grid-template-columns: 1fr; } }

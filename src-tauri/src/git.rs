@@ -34,8 +34,10 @@ mod process;
 mod rebase;
 mod reword;
 mod share;
+mod sync;
 mod time_machine;
 mod undo;
+pub use sync::{PushLease, SyncRequest, SyncResponse};
 mod vibe;
 pub use daily::{Junk, Stash};
 pub use files::{BlameLine, FileCommit};
@@ -215,6 +217,7 @@ struct Repository {
 pub struct Backend {
     repos: Vec<Repository>,
     sequence: u64,
+    sync_leases: HashMap<u64, PushLease>,
 }
 
 impl Backend {
@@ -1051,11 +1054,13 @@ impl Repository {
         if output.ok {
             Ok(())
         } else {
-            Err(if output.stderr.trim().is_empty() {
-                redact(&text(&output.stdout))
-            } else {
-                output.stderr.trim().to_owned()
-            })
+            Err(format!(
+                "{}\n{}",
+                output.stderr.trim(),
+                redact(&text(&output.stdout)).trim()
+            )
+            .trim()
+            .to_owned())
         }
     }
     fn upstream_config(&self) -> Result<(OsString, OsString)> {

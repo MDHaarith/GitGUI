@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.31.0 — 2026-10-26
+- Pull asks Merge or Rebase; a pull or branch switch blocked by local changes offers Stash & retry
+- When a push is rejected, Force push replaces the remote branch only if nobody else pushed since you fetched
+- Update a branch from its remote without checking it out, or reset it to the remote after confirming; a checkpoint is saved first
+- Compare two branches: commits only on each side and the changes since they split
+- Worktrees: list, create, open in a tab, and remove (uncommitted files are checkpointed and stashed first)
+- Branches show their last author and date, with a stale badge after 90 days
+
 ## 0.30.0 — 2026-10-26
 - Select several commits in the graph to cherry-pick, revert, squash or drop them together; a checkpoint is saved first
 - Compare two selected commits, and copy one or more commit IDs

@@ -324,6 +324,22 @@ async fn push_remote(
 }
 
 #[tauri::command]
+async fn sync_repository(
+    repo_id: u64,
+    request: git::SyncRequest,
+    on_progress: Channel<String>,
+    state: State<'_, AppState>,
+) -> git::Result<git::SyncResponse> {
+    let progress: Progress = Arc::new(move |message| {
+        let _ = on_progress.send(message);
+    });
+    task(state, true, move |b| {
+        b.sync(repo_id, request, Some(progress))
+    })
+    .await
+}
+
+#[tauri::command]
 async fn get_session(repo_id: u64, state: State<'_, AppState>) -> git::Result<Session> {
     task(state, false, move |b| b.session(repo_id)).await
 }
@@ -1112,6 +1128,7 @@ pub fn run() {
             terminal_commands::terminal_ack,
             terminal_commands::stop_terminal,
             terminal_commands::git_output_log,
+            sync_repository,
             startup_path,
             open_repository,
             close_repository,

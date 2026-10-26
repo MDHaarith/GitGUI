@@ -1,6 +1,6 @@
 [package]
 name = "gitgui"
-version = "0.30.0"
+version = "0.31.0"
 description = "A graph-first Git desktop client"
 authors = ["GitGUI"]
 license = "MIT"

@@ -22,6 +22,8 @@ import { wireTerminalPanel } from './terminal.ts';
 import { PRESETS, STARTER_RULES } from './ai.ts';
 import { mountAssistant } from './assistant.ts';
 import { selectCommits, batchRebase, resultingCommits } from './graph-actions.ts';
+import { syncRequest, wireSync, pullWithChoices, switchWithChoices, pushWithLease, type BranchActivity } from './sync.ts';
+import { staleBranch } from './sync-logic.ts';
 import './styles.css';
 import './graph-actions.css';
 
@@ -42,6 +44,7 @@ const terminalPanel = wireTerminalPanel();
 const assistant = mountAssistant(() => repo, async () => { await refresh(); await undoHistory.refreshUndo(); }, reply => recordUsage({ ...reply, text: reply.message.text }), () => { void showKeyForm(); }, (target, preview) => previewInto(target, preview));
 let openRepos: RepoInfo[] = [];
 let page: GraphPage | null = null;
+let branchActivity: BranchActivity[] = [];
 let layout: Layout = layoutHistory([]);
 let selected: string | null = null;
 let selectedCommits = new Set<string>();
@@ -128,7 +131,7 @@ function updateControls() {
   assistant.sync();
   const unavailable = busy ? 'Wait for the current Git operation to finish.' : !repo ? 'Open a repository first.' : '';
   const blocked = unavailable || (repo?.operation ? 'Finish the ' + repo.operation + ' first (Continue or Abort in Changes).' : '');
-  document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('[data-repo]').forEach(node => { node.disabled = !!unavailable; if (unavailable) node.setAttribute('aria-description', unavailable); else node.removeAttribute('aria-description'); });
+  document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('[data-repo]').forEach(node => { node.disabled = !!unavailable || node.dataset.syncDisabled === 'true'; if (unavailable) node.setAttribute('aria-description', unavailable); else node.removeAttribute('aria-description'); });
   disable('open-repo', busy ? unavailable : ''); disable('init-repo', busy ? unavailable : ''); disable('welcome-open', busy ? unavailable : '');
   disable('details-button', unavailable || (!selected ? 'Select a commit to review its details.' : ''));
   disable('rebase-button', blocked || (repo?.detached ? 'Switch to a branch before cleaning up commits.' : ''));
@@ -139,7 +142,7 @@ function updateControls() {
   // Without a remote these buttons open Publish instead.
   const offline = !!repo && !repo.remotes.length;
   disable('fetch', blocked);
-  disable('pull', blocked || (offline ? '' : !repo?.upstream ? 'Publish this branch to set its upstream before pulling.' : repo.files.length ? 'Commit or resolve working changes before pulling.' : ''));
+  disable('pull', blocked || (offline ? '' : !repo?.upstream ? 'Publish this branch to set its upstream before pulling.' : ''));
   disable('push', blocked || (!repo?.branch ? 'Switch to a local branch before pushing.' : ''));
   for (const id of ['clone-repo', 'welcome-clone']) disable(id, busy ? unavailable : '');
   disable('stash-changes', blocked || (!repo?.files.length ? 'There are no changes to put aside.' : ''));
@@ -214,7 +217,7 @@ function progressReporter() {
   };
 }
 function short(oid: string) { return oid.slice(0, 8); }
-function relative(timestamp: number) {
+function relative(timestamp: number, days = false) {
   const date = new Date(timestamp * 1000);
   if (!Number.isFinite(date.getTime())) return 'Unknown';
   const age = (Date.now() - date.getTime()) / 1000;
@@ -222,7 +225,7 @@ function relative(timestamp: number) {
   if (age < 60) return 'now';
   if (age < 3600) return Math.floor(age / 60) + ' min';
   if (age < 86400) return Math.floor(age / 3600) + ' h';
-  if (age < 604800) return Math.floor(age / 86400) + ' d';
+  if (age < 604800 || days) return Math.floor(age / 86400) + ' d';
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(age > 31536000 ? { year: 'numeric' } : {}) });
 }
 function renderInfo() {
@@ -269,11 +272,22 @@ function scopeOptions() {
       item.setAttribute('aria-label', kind + ' ' + ref.name + (ref.isHead ? ', current branch' : ''));
       item.setAttribute('aria-pressed', String(scope === ref.id));
       const name = document.createElement('span'); name.className = 'ref-label'; name.textContent = ref.name; name.title = ref.fullName; item.append(name);
+      const activity = branchActivity.find(entry => entry.id === ref.id);
+      if (activity) {
+        const meta = document.createElement('span'); meta.className = 'sync-ref-meta'; meta.textContent = activity.author + ' · ' + relative(activity.timestamp, true); meta.title = meta.textContent; name.append(meta);
+        item.setAttribute('aria-label', item.getAttribute('aria-label') + ', last commit by ' + activity.author + ', ' + relative(activity.timestamp, true) + (staleBranch(activity.timestamp) ? ', stale' : ''));
+        if (staleBranch(activity.timestamp)) { const badge = document.createElement('span'); badge.className = 'ref-head'; badge.textContent = 'stale'; badge.title = 'No commits in 90 days'; item.append(badge); }
+      }
       if (ref.isHead) { const head = document.createElement('span'); head.className = 'ref-head'; head.textContent = 'HEAD'; item.append(head); }
       item.addEventListener('click', () => { void changeScope(ref.id); });
       const line = document.createElement('div'); line.className = 'ref-row'; line.append(item);
       const actions: [string, () => void][] = [];
       if (kind !== 'tag' && !ref.isHead) actions.push([kind === 'remote' ? 'Check out' : 'Switch to this branch', () => { void switchTo(ref); }], ['Merge into current branch', () => { void mergeRef(ref); }]);
+      if (kind === 'local') {
+        if (!ref.isHead) actions.push(['Fetch', () => syncUI.branch(ref, false)], ['Pull (fast-forward)', () => syncUI.branch(ref, false)]);
+        actions.push(['Reset to remote…', () => syncUI.branch(ref, true)]);
+      }
+      if (kind !== 'tag') actions.push(['Compare branches…', () => syncUI.compare()]);
       if (kind !== 'tag') actions.push(['Explain with AI', () => { void explainChanges('branch:' + ref.id, 'Branch ' + ref.name + ' explained'); }]);
       else actions.push(['Delete tag', () => { void removeTag(ref); }]);
       const more = document.createElement('button'); more.type = 'button'; more.className = 'ref-more'; more.dataset.repo = ''; more.textContent = '⋯';
@@ -294,7 +308,7 @@ function scopeOptions() {
 async function switchTo(ref: RefInfo) {
   if (!repo || busy) return;
   scope = null;
-  await mutate((ref.kind === 'remote' ? 'Checking out ' : 'Switching to ') + ref.name + '…', () => ref.kind === 'remote' ? api.checkoutRemote(repo!.id, ref.id, repo!.token) : api.switchBranch(repo!.id, ref.id, repo!.token));
+  await mutate((ref.kind === 'remote' ? 'Checking out ' : 'Switching to ') + ref.name + '…', () => switchWithChoices(repo!, ref, progressReporter()));
 }
 async function changeScope(next: string | null) {
   if (busy || !repo || next === scope) return;
@@ -411,6 +425,8 @@ async function loadGraph(more = false) {
     if (!scope || !String(error).includes('Unknown history scope')) throw error;
     scope = null; result = await api.graph(id, null, limit);
   }
+  if (currentEpoch !== epoch || repo?.id !== id) return;
+  branchActivity = (await syncRequest(id, { action: 'activity' })).activity ?? [];
   if (currentEpoch !== epoch || repo?.id !== id) return;
   page = result;
   if (!page.commits.some(commit => commit.oid === selected)) selected = page.commits.find(commit => commit.oid === page?.head)?.oid ?? page.commits[0]?.oid ?? null;
@@ -1578,8 +1594,8 @@ button('refresh').onclick = () => {
 };
 // Fetch/Pull/Push stay visible in every repository; without a remote they lead to Publish.
 button('fetch').onclick = () => { if (repo && !repo.remotes.length) openPublish(); else chooseRemote('fetch'); };
-button('pull').onclick = () => { if (repo && !repo.remotes.length) openPublish(); else if (repo) void mutate('Pulling fast-forward update…', () => api.pull(repo!.id, repo!.token, progressReporter())); };
-button('push').onclick = () => { if (!repo) return; if (!repo.remotes.length) openPublish(); else if (!repo.upstream) chooseRemote('push'); else void mutate('Pushing current branch…', () => api.push(repo!.id, null, repo!.token, progressReporter())); };
+button('pull').onclick = () => { if (repo && !repo.remotes.length) openPublish(); else if (repo) void mutate('Pulling fast-forward update…', () => pullWithChoices(repo!, progressReporter())); };
+button('push').onclick = () => { if (!repo) return; if (!repo.remotes.length) openPublish(); else if (!repo.upstream) chooseRemote('push'); else void mutate('Pushing current branch…', () => pushWithLease(repo!, null, progressReporter())); };
 button('details-button').onclick = () => { if (get('details').hidden) { void openDetails(); get('details').focus(); } else closeDetails(); };
 button('close-details').onclick = closeDetails;
 input('history-search').oninput = () => searchHistory(true);
@@ -1620,10 +1636,10 @@ select('branch-select').onchange = () => { input('branch-rename').value = page?.
 input('branch-rename').oninput = updateControls;
 button('rename-branch').onclick = () => { if (!repo) return; const id = select('branch-select').value; const name = input('branch-rename').value.trim(); dialog('branches').close(); scope = null; void mutate('Renaming branch…', () => api.renameBranch(repo!.id, id, name, repo!.token)); };
 button('delete-branch').onclick = () => { void deleteBranch(); };
-button('switch-branch').onclick = () => { if (!repo) return; const id = select('branch-select').value; dialog('branches').close(); scope = null; void mutate('Switching branch…', () => api.switchBranch(repo!.id, id, repo!.token)); };
+button('switch-branch').onclick = () => { if (!repo) return; const id = select('branch-select').value; dialog('branches').close(); scope = null; const ref = page?.refs.find(ref => ref.id === id); if (ref) void mutate('Switching branch…', () => switchWithChoices(repo!, ref, progressReporter())); };
 button('create-branch').onclick = () => { if (!repo) return; const name = input('branch-name').value.trim(); const oid = select('branch-start').value === 'selected' ? selected : null; dialog('branches').close(); void mutate('Creating branch…', () => api.createBranch(repo!.id, name, oid, repo!.token)); };
 select('remote-select').onchange = remoteUrl;
-get<HTMLFormElement>('remote-form').onsubmit = event => { event.preventDefault(); if (!repo || busy) return; const remoteId = select('remote-select').value; dialog('remote-dialog').close(); if (remoteAction === 'fetch') void mutate('Fetching remote…', () => api.fetch(repo!.id, remoteId, progressReporter())); else void mutate('Publishing current branch…', () => api.push(repo!.id, remoteId, repo!.token, progressReporter())); };
+get<HTMLFormElement>('remote-form').onsubmit = event => { event.preventDefault(); if (!repo || busy) return; const remoteId = select('remote-select').value; dialog('remote-dialog').close(); if (remoteAction === 'fetch') void mutate('Fetching remote…', () => api.fetch(repo!.id, remoteId, progressReporter())); else void mutate('Publishing current branch…', () => pushWithLease(repo!, remoteId, progressReporter())); };
 button('publish').onclick = openPublish;
 get<HTMLFormElement>('publish-form').onsubmit = event => { event.preventDefault(); void publish(); };
 get<HTMLFormElement>('publish-form').onchange = () => { const useUrl = get<HTMLFormElement>('publish-form').querySelector<HTMLInputElement>('input[name="publish-mode"]:checked')?.value === 'url'; input('publish-url').disabled = !useUrl; if (useUrl) input('publish-url').focus(); };
@@ -1734,6 +1750,7 @@ window.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'p') { event.preventDefault(); if (!button('push').disabled) button('push').click(); }
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && get('commit-form').contains(document.activeElement)) { event.preventDefault(); void commitChanges(); }
 });
+const syncUI = wireSync({ repo: () => repo, refs: () => page?.refs ?? [], run, mutate, preview: previewInto, open: openSaved, progress: progressReporter, report });
 let focusCheck: Promise<void> | null = null;
 // Returning to the window re-reads status quietly and reloads history only when something changed.
 async function checkForChanges() {
