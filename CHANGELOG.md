@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.27.0 — 2026-10-26
+- AI assistant panel: chat about the repository; it starts read-only, every change it makes needs your Allow and saves a checkpoint first
+- More AI providers: Gemini, Mistral, xAI, LM Studio and Gemini CLI, with default models filled in
+- API keys are kept in the system credential store (a private file when none is available); existing keys move over automatically
+
 ## 0.26.0 — 2026-10-26
 - Built-in terminal (toolbar button or Ctrl+`): each repository tab gets its own shell; a checkpoint is saved when it starts
 - Git output tab lists the last 500 Git commands with time, duration, exit status and errors; secrets in arguments are hidden

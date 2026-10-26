@@ -11,6 +11,9 @@ use std::{
     process::Stdio,
 };
 
+pub mod chat;
+mod keys;
+
 const MODEL: &str = "claude-opus-5-5";
 // About 100k tokens; larger changes are refused rather than silently cut.
 const INPUT_LIMIT: usize = 400_000;
@@ -32,6 +35,7 @@ pub struct Provider {
     pub kind: String,
     pub base_url: String,
     pub model: String,
+    #[serde(skip_serializing, alias = "api_key")]
     pub api_key: String,
     pub command: String,
 }
@@ -43,9 +47,6 @@ fn config_dir() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("APPDATA").map(PathBuf::from))?;
     Some(config.join("com.gitgui.app"))
 }
-fn key_file() -> Option<PathBuf> {
-    Some(config_dir()?.join("anthropic-key"))
-}
 fn provider_file() -> Option<PathBuf> {
     Some(config_dir()?.join("ai-provider.json"))
 }
@@ -53,44 +54,95 @@ fn provider_file() -> Option<PathBuf> {
 /// Writes a file readable only by this user.
 fn write_private(path: &Path, data: &[u8]) -> Result<()> {
     fs::create_dir_all(path.parent().ok_or("Invalid config path")?).map_err(|e| e.to_string())?;
-    let _ = fs::remove_file(path);
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let temporary = path.with_extension(format!("tmp-{}-{stamp}", std::process::id()));
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     // On Windows the per-user %APPDATA% folder is already private to this user.
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options.open(path).map_err(|e| e.to_string())?;
-    file.write_all(data).map_err(|e| e.to_string())
+    let result = (|| {
+        let mut file = options.open(&temporary).map_err(|e| e.to_string())?;
+        file.write_all(data).map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        drop(file);
+        fs::rename(&temporary, path).map_err(|e| e.to_string())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(temporary);
+    }
+    result
 }
 
-/// Saves the Claude API key readable only by this user.
-pub fn save_key(key: &str) -> Result<()> {
-    let key = key.trim();
-    if key.is_empty() || key.len() > 512 || key.chars().any(|c| c.is_whitespace() || c.is_control())
+fn validate_key(key: &str) -> Result<()> {
+    if key.is_empty()
+        || key.len() > 512
+        || key
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '\\'))
     {
         return Err("That does not look like an API key.".into());
     }
-    write_private(
-        &key_file().ok_or("Cannot find the config folder")?,
-        key.as_bytes(),
+    Ok(())
+}
+pub fn save_key(key: &str) -> Result<()> {
+    let _lock = keys::LOCK
+        .lock()
+        .map_err(|_| "Key storage is unavailable")?;
+    keys::save(
+        &config_dir().ok_or("Cannot find the config folder")?,
+        "anthropic",
+        key.trim(),
     )
+    .map(|_| ())
 }
-
-pub fn provider() -> Provider {
-    let saved = provider_file()
-        .and_then(|p| fs::read_to_string(p).ok())
-        .and_then(|t| serde_json::from_str::<Provider>(&t).ok());
-    saved.unwrap_or_else(|| Provider {
-        kind: "claude".into(),
-        ..Provider::default()
+fn load_provider() -> Result<(Provider, &'static str)> {
+    let dir = config_dir().ok_or("Cannot find the config folder")?;
+    let mut saved = match fs::read_to_string(dir.join("ai-provider.json")) {
+        Ok(text) => {
+            serde_json::from_str::<Provider>(&text).map_err(|_| "Invalid AI provider settings")?
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Provider {
+            kind: "claude".into(),
+            ..Provider::default()
+        },
+        Err(_) => return Err("Cannot read AI provider settings".into()),
+    };
+    keys::legacy(&dir, &mut saved)?;
+    let (key, storage) = keys::load(&dir, &keys::account(&saved))?;
+    saved.api_key = key;
+    Ok((saved, storage))
+}
+pub fn provider() -> Result<Provider> {
+    let _lock = keys::LOCK
+        .lock()
+        .map_err(|_| "Key storage is unavailable")?;
+    load_provider().map(|(p, _)| p)
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicProvider {
+    #[serde(flatten)]
+    pub provider: Provider,
+    pub key_set: bool,
+    pub key_storage: &'static str,
+}
+pub fn public_provider() -> Result<PublicProvider> {
+    let _lock = keys::LOCK
+        .lock()
+        .map_err(|_| "Key storage is unavailable")?;
+    let (provider, storage) = load_provider()?;
+    let key_set = !provider.api_key.is_empty()
+        || (provider.kind == "claude"
+            && std::env::var("ANTHROPIC_API_KEY").is_ok_and(|k| !k.trim().is_empty()));
+    Ok(PublicProvider {
+        provider,
+        key_set,
+        key_storage: storage,
     })
-}
-/// The provider without its key, for showing in the app.
-pub fn public_provider() -> Provider {
-    Provider {
-        api_key: String::new(),
-        ..provider()
-    }
 }
 /// Saves the provider; an empty key keeps the one already saved.
 pub fn save_provider(mut next: Provider) -> Result<()> {
@@ -106,6 +158,14 @@ pub fn save_provider(mut next: Provider) -> Result<()> {
         "openai" => {
             if !(next.base_url.starts_with("https://") || next.base_url.starts_with("http://")) {
                 return Err("Enter the API address, starting with https:// (for example https://api.deepseek.com).".into());
+            }
+            let url = tauri::Url::parse(&next.base_url).map_err(|_| "Invalid API address")?;
+            if !url.username().is_empty()
+                || url.password().is_some()
+                || url.query().is_some()
+                || url.fragment().is_some()
+            {
+                return Err("The API address must not contain credentials, a query, or a fragment. Put the key in the API key field.".into());
             }
             if next.model.is_empty() {
                 return Err("Enter the model name (for example deepseek-chat).".into());
@@ -132,11 +192,15 @@ pub fn save_provider(mut next: Provider) -> Result<()> {
             return Err("Choose Claude, an OpenAI-compatible API, or a command-line agent.".into())
         }
     }
-    if next.api_key.is_empty() {
-        let old = provider();
-        if old.kind == next.kind && old.base_url == next.base_url {
-            next.api_key = old.api_key;
-        }
+    let _lock = keys::LOCK
+        .lock()
+        .map_err(|_| "Key storage is unavailable")?;
+    let dir = config_dir().ok_or("Cannot find the config folder")?;
+    let (old, _) = load_provider()?;
+    if !next.api_key.is_empty() {
+        keys::save(&dir, &keys::account(&next), &next.api_key)?;
+    } else if old.kind == next.kind && old.base_url == next.base_url {
+        next.api_key = old.api_key;
     }
     let text = serde_json::to_string_pretty(&next).map_err(|e| e.to_string())?;
     write_private(
@@ -146,13 +210,14 @@ pub fn save_provider(mut next: Provider) -> Result<()> {
 }
 
 /// curl config lines carrying the Claude credentials, so they never appear in the process list.
-fn credentials() -> Result<(String, &'static str)> {
+fn credentials(provider: &Provider) -> Result<(String, &'static str)> {
     let key = std::env::var("ANTHROPIC_API_KEY")
         .ok()
-        .or_else(|| key_file().and_then(|p| fs::read_to_string(p).ok()))
         .map(|k| k.trim().to_owned())
-        .filter(|k| !k.is_empty());
+        .filter(|k| !k.is_empty())
+        .or_else(|| Some(provider.api_key.clone()).filter(|key| !key.is_empty()));
     if let Some(key) = key {
+        validate_key(&key)?;
         return Ok((format!("header = \"x-api-key: {key}\"\n"), ""));
     }
     let token = crate::platform::command("ant")
@@ -162,7 +227,7 @@ fn credentials() -> Result<(String, &'static str)> {
         .ok()
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
-        .filter(|t| !t.is_empty() && !t.contains(['"', '\n']))
+        .filter(|t| validate_key(t).is_ok())
         .ok_or("No Claude API key. Add one in AI settings (from console.anthropic.com), or choose another AI provider.")?;
     Ok((
         format!("header = \"Authorization: Bearer {token}\"\n"),
@@ -250,10 +315,37 @@ pub fn parse_openai(body: &str, model: &str) -> Result<Answer> {
     })
 }
 
+fn redact_headers(text: &str, headers: &str) -> String {
+    let mut text = crate::git::redact(text);
+    for line in headers.lines() {
+        let secret = line
+            .strip_prefix("header = \"x-api-key: ")
+            .or_else(|| line.strip_prefix("header = \"Authorization: Bearer "))
+            .and_then(|value| value.strip_suffix('"'));
+        if let Some(secret) = secret.filter(|secret| !secret.is_empty()) {
+            text = text.replace(secret, "[redacted]");
+        }
+    }
+    text
+}
+
 /// POSTs a JSON body with curl, reading headers and body from stdin so keys never reach the process list.
 fn post(url: &str, headers: &str, body: &Value, name: &str) -> Result<String> {
     let mut child = crate::platform::command("curl")
-        .args(["-sS", "--max-time", "300", "-K", "-", url])
+        .args([
+            "-q",
+            "-sS",
+            "--max-time",
+            "300",
+            "--proto",
+            "=http,https",
+            "--max-filesize",
+            "2097152",
+            "-K",
+            "-",
+            "--url",
+            url,
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -274,16 +366,23 @@ fn post(url: &str, headers: &str, body: &Value, name: &str) -> Result<String> {
     if !output.status.success() {
         return Err(format!(
             "Could not reach {name}: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+            redact_headers(String::from_utf8_lossy(&output.stderr).trim(), headers)
         ));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(redact_headers(
+        &String::from_utf8_lossy(&output.stdout),
+        headers,
+    ))
 }
 
-/// Runs a command-line agent in an empty folder (so it cannot edit the project) with the prompt on stdin.
+/// Runs a command-line agent in its own temporary folder with the prompt on stdin.
 fn run_command(command: &str, prompt: &str) -> Result<Answer> {
-    let dir = std::env::temp_dir().join(format!("gitgui-agent-{}", std::process::id()));
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("gitgui-agent-{}-{stamp}", std::process::id()));
+    fs::create_dir(&dir).map_err(|e| e.to_string())?;
     let mut child = crate::platform::shell(command)
         .current_dir(&dir)
         .stdin(Stdio::piped())
@@ -331,10 +430,32 @@ fn run_command(command: &str, prompt: &str) -> Result<Answer> {
     })
 }
 
+fn scrub(text: &str, provider: &Provider) -> String {
+    let mut text = crate::git::redact(text);
+    for key in [
+        Some(provider.api_key.clone()),
+        std::env::var("ANTHROPIC_API_KEY").ok(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|key| !key.is_empty())
+    {
+        text = text.replace(&key, "[redacted]");
+    }
+    text
+}
+
+pub fn sanitize_output(output: Result<String>) -> Result<String> {
+    let provider = provider()?;
+    output
+        .map(|text| scrub(&text, &provider))
+        .map_err(|error| scrub(&error, &provider))
+}
+
 pub fn ask(task: &str, changes: &str) -> Result<Answer> {
     let prompt = prompt(task, changes)?;
-    let provider = provider();
-    match provider.kind.as_str() {
+    let provider = provider()?;
+    let answer = (|| match provider.kind.as_str() {
         "openai" => {
             let auth = if provider.api_key.is_empty() {
                 String::new()
@@ -357,7 +478,7 @@ pub fn ask(task: &str, changes: &str) -> Result<Answer> {
                 "output_config": {"effort": "medium"},
                 "messages": [{"role": "user", "content": prompt}],
             });
-            let (auth, beta) = credentials()?;
+            let (auth, beta) = credentials(&provider)?;
             let headers = format!(
                 "{auth}header = \"anthropic-version: 2023-06-01\"\nheader = \"anthropic-beta: server-side-fallback-2026-07-01{beta}\"\n"
             );
@@ -368,12 +489,44 @@ pub fn ask(task: &str, changes: &str) -> Result<Answer> {
                 "Claude",
             )?)
         }
-    }
+    })();
+    answer
+        .map(|mut answer: Answer| {
+            answer.text = scrub(&answer.text, &provider);
+            answer
+        })
+        .map_err(|error| scrub(&error, &provider))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keys_and_authentication_headers_never_reach_the_webview() {
+        let provider = Provider {
+            api_key: "private-key".into(),
+            ..Provider::default()
+        };
+        let public = PublicProvider {
+            provider,
+            key_set: true,
+            key_storage: "credential-store",
+        };
+        let value = serde_json::to_value(public).unwrap();
+        assert_eq!(value["keySet"], true);
+        assert!(value.get("apiKey").is_none());
+        assert!(value.get("api_key").is_none());
+        let headers =
+            "header = \"x-api-key: secret-key\"\nheader = \"Authorization: Bearer secret-token\"\n";
+        assert_eq!(
+            redact_headers(
+                "secret-key secret-token https://user:password@host/repo",
+                headers
+            ),
+            "[redacted] [redacted] https://[redacted]@host/repo"
+        );
+    }
 
     #[test]
     fn responses_are_parsed_and_refusals_and_errors_reported() {

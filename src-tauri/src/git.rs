@@ -17,6 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod assistant;
 mod commit_options;
 mod commits;
 mod staging;

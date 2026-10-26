@@ -324,3 +324,98 @@ test('window controls stay inside a 1366px window', async () => {
   const box = await tab.locator('#window-close').boundingBox();
   assert.ok(box && box.x + box.width <= 1366, JSON.stringify(box));
 });
+
+test('assistant runs reads, renders diffs and keeps Git responsive while waiting', async () => {
+  await tab.evaluate(({ repo, diff }) => {
+    document.querySelectorAll('dialog[open]').forEach(d => d.close());
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    window.assistantCalls = [];
+    let turns = 0;
+    window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === 'assistant_chat') {
+        window.assistantCalls.push({ cmd, args: structuredClone(args) });
+        turns++;
+        if (turns === 1) await new Promise(resolve => { window.finishAssistant = resolve; });
+        return { message: { role: 'assistant', text: turns === 1 ? 'Inspecting changes' : '**Reviewed.**', calls: turns === 1 ? [{ id: 'diff-1', name: 'diff', input: {} }] : [], toolId: null }, inputTokens: 10, outputTokens: 5, provider: 'claude' };
+      }
+      if (cmd === 'assistant_tool') { window.assistantCalls.push({ cmd, args: structuredClone(args) }); return JSON.stringify({ text: diff, truncated: false, binary: false }); }
+      if (cmd === 'get_status') return repo;
+      return invoke(cmd, args);
+    };
+  }, { repo, diff });
+  await tab.click('#assistant-button');
+  assert.match(await tab.locator('.assistant-context').textContent(), /demo · main/);
+  await tab.fill('#assistant-prompt', 'Review\nthese changes');
+  await tab.locator('#assistant-prompt').press('Shift+Enter');
+  assert.match(await tab.locator('#assistant-prompt').inputValue(), /\n$/);
+  await tab.locator('#assistant-prompt').press('Enter');
+  await tab.waitForFunction(() => typeof window.finishAssistant === 'function');
+  assert.equal(await tab.locator('#refresh').isEnabled(), true);
+  await tab.click('#refresh');
+  await tab.evaluate(() => window.finishAssistant());
+  await tab.getByRole('button', { name: 'Copy Markdown', exact: true }).last().waitFor();
+  await tab.waitForFunction(() => !document.querySelector('#assistant-panel [type=submit]').disabled);
+  assert.ok(await tab.locator('#assistant-panel .diff .diff-line').count() > 0);
+  const calls = await tab.evaluate(() => window.assistantCalls);
+  assert.equal(calls[0].args.permission, 'read-only');
+  assert.equal(calls.find(c => c.cmd === 'assistant_tool').args.allow, false);
+  assert.equal(calls.filter(c => c.cmd === 'assistant_chat')[1].args.messages.at(-1).role, 'tool');
+});
+
+test('assistant requires Allow for every write, denies restricted tools and cancels hidden approvals', async () => {
+  await tab.click('#assistant-panel [data-new]');
+  await tab.evaluate(() => {
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    window.writeCalls = [];
+    let turn = 0;
+    window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === 'assistant_chat') {
+        turn++;
+        return { message: { role: 'assistant', text: '', calls: turn % 2 ? [{ id: `stage-${turn}`, name: 'stage', input: { fileIds: ['62'] } }] : [], toolId: null }, inputTokens: 0, outputTokens: 0, provider: 'test' };
+      }
+      if (cmd === 'assistant_tool') { window.writeCalls.push(args); return 'Staged README.md'; }
+      return invoke(cmd, args);
+    };
+  });
+  await tab.fill('#assistant-prompt', 'Stage this'); await tab.locator('#assistant-prompt').press('Enter');
+  await tab.getByText('Error: Error: Disabled by the selected permission level.', { exact: true }).waitFor();
+  assert.equal(await tab.evaluate(() => window.writeCalls.length), 0);
+  await tab.waitForFunction(() => !document.querySelector('#assistant-panel [type=submit]').disabled);
+  await tab.evaluate(() => { const select = document.getElementById('assistant-permission'); select.value = 'commits'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  await tab.fill('#assistant-prompt', 'Stage this'); await tab.locator('#assistant-prompt').press('Enter');
+  await tab.getByRole('button', { name: 'Allow', exact: true }).waitFor();
+  assert.equal(await tab.evaluate(() => window.writeCalls.length), 0);
+  await tab.getByRole('button', { name: 'Allow', exact: true }).click();
+  await tab.getByText('Staged README.md', { exact: true }).waitFor();
+  const calls = await tab.evaluate(() => window.writeCalls);
+  assert.equal(calls.length, 1); assert.equal(calls[0].allow, true); assert.equal(calls[0].permission, 'commits'); assert.equal(calls[0].token, 't');
+  await tab.waitForFunction(() => !document.querySelector('#assistant-panel [type=submit]').disabled);
+  await tab.fill('#assistant-prompt', 'Stage again'); await tab.locator('#assistant-prompt').press('Enter');
+  await tab.getByRole('button', { name: 'Allow', exact: true }).waitFor();
+  await tab.click('#assistant-panel [data-close]');
+  await tab.waitForFunction(() => !document.querySelector('#assistant-panel [type=submit]').disabled);
+  assert.equal(await tab.evaluate(() => window.writeCalls.length), 1);
+});
+
+test('assistant copies Markdown and settings show key presence and storage without revealing a key', async () => {
+  await tab.click('#assistant-button');
+  await tab.click('#assistant-panel [data-new]');
+  await tab.evaluate(() => {
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copiedAnswer = text; } } });
+    window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === 'assistant_chat') return { message: { role: 'assistant', text: '**Keep this**\n\n- Markdown answer', calls: [], toolId: null }, inputTokens: 0, outputTokens: 0, provider: 'test' };
+      if (cmd === 'get_ai_provider') return { kind: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini', command: '', keySet: true, keyStorage: 'private-file' };
+      return invoke(cmd, args);
+    };
+  });
+  await tab.fill('#assistant-prompt', 'Explain'); await tab.locator('#assistant-prompt').press('Enter');
+  await tab.getByRole('button', { name: 'Copy Markdown', exact: true }).click();
+  assert.equal(await tab.evaluate(() => window.copiedAnswer), '**Keep this**\n\n- Markdown answer');
+  await tab.click('#assistant-panel [data-settings]');
+  await tab.locator('#ai-dialog[open]').waitFor();
+  assert.equal(await tab.locator('#api-key').inputValue(), '');
+  assert.match(await tab.locator('#ai-key-storage').textContent(), /Key set.*credential store unavailable; using a private file/);
+  await tab.evaluate(() => document.getElementById('ai-dialog').close());
+  await tab.click('#assistant-panel [data-close]');
+});

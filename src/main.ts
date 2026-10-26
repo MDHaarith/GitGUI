@@ -18,6 +18,7 @@ import { folderParents } from './file-tree.ts';
 import { markup } from './template.ts';
 import { wireTerminalPanel } from './terminal.ts';
 import { PRESETS, STARTER_RULES } from './ai.ts';
+import { mountAssistant } from './assistant.ts';
 import './styles.css';
 
 const app = document.getElementById('app')!;
@@ -34,6 +35,7 @@ const repoDropdown = wireDropdown(select('recent-repos'), () => button('open-rep
 
 let repo: RepoInfo | null = null;
 const terminalPanel = wireTerminalPanel();
+const assistant = mountAssistant(() => repo, () => refresh(), reply => recordUsage({ ...reply, text: reply.message.text }), () => { void showKeyForm(); }, (target, preview) => previewInto(target, preview));
 let openRepos: RepoInfo[] = [];
 let page: GraphPage | null = null;
 let layout: Layout = layoutHistory([]);
@@ -116,6 +118,7 @@ function disable(id: string, reason: string) {
   if (reason) control.setAttribute('aria-description', reason); else control.removeAttribute('aria-description');
 }
 function updateControls() {
+  assistant.sync();
   const unavailable = busy ? 'Wait for the current Git operation to finish.' : !repo ? 'Open a repository first.' : '';
   const blocked = unavailable || (repo?.operation ? 'Finish the ' + repo.operation + ' first (Continue or Abort in Changes).' : '');
   document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('[data-repo]').forEach(node => { node.disabled = !!unavailable; if (unavailable) node.setAttribute('aria-description', unavailable); else node.removeAttribute('aria-description'); });
@@ -530,9 +533,9 @@ function diffText(line: DiffLine | null, other?: DiffLine) {
   text.textContent = line.text || ' '; return text;
 }
 /** Renders a diff, unified or side by side; `onHunk` adds a stage/unstage button to each hunk. */
-function previewInto(id: string, preview: Preview, onHunk?: (hunk: number, header: string) => void, hunkLabel = 'Stage hunk', onLines?: LinesAction, onLine?: LineAction) {
-  shownPreviews.set(id, [preview, onHunk, onLines, onLine]);
-  const container = get(id); container.replaceChildren(); container.dataset.hunkLabel = hunkLabel;
+function previewInto(id: string | HTMLElement, preview: Preview, onHunk?: (hunk: number, header: string) => void, hunkLabel = 'Stage hunk', onLines?: LinesAction, onLine?: LineAction) {
+  if (typeof id === 'string') shownPreviews.set(id, [preview, onHunk, onLines, onLine]);
+  const container = typeof id === 'string' ? get(id) : id; container.replaceChildren(); container.dataset.hunkLabel = hunkLabel;
   // shortcut: render 5,000 diff lines, add virtualization when larger previews are needed.
   const all = numberDiff(preview.text, preview.binary); const lines = all.slice(0, 5000);
   const indices = new Map(lines.map((line, index) => [line, index]));
@@ -723,7 +726,7 @@ async function undoCommit() {
   await mutate('Undoing last commit…', () => api.undoCommit(repo!.id, repo!.token));
 }
 
-function presetFor(provider: AiProvider) {
+function presetFor(provider: Omit<AiProvider, 'apiKey'>) {
   return Object.keys(PRESETS).find(key => { const p = PRESETS[key].provider; return p.kind === provider.kind && p.baseUrl === provider.baseUrl && p.command === provider.command; })
     ?? (provider.kind === 'command' ? 'command' : provider.kind === 'openai' ? 'api' : 'claude');
 }
@@ -754,6 +757,7 @@ async function showKeyForm() {
   select('ai-preset').value = presetFor(provider);
   input('ai-base-url').value = provider.baseUrl; input('ai-model').value = provider.model; input('ai-command').value = provider.command; input('api-key').value = '';
   showProviderFields();
+  get('ai-key-storage').textContent = 'keyStorage' in provider ? `${provider.keySet ? 'Key set. ' : 'No saved key. '}${provider.keyStorage === 'private-file' ? 'OS credential store unavailable; using a private file.' : 'Keys stored in the OS credential store.'}` : '';
   get('ai-title').textContent = 'AI settings'; get('key-form').hidden = false; get('ai-answer').textContent = ''; get('ai-usage').textContent = '';
   if (!dialog('ai-dialog').open) dialog('ai-dialog').showModal(); select('ai-preset').focus();
 }

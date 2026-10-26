@@ -32,6 +32,7 @@ export const markup = `
       <button id="search-prev" aria-label="Previous matching commit" title="Previous match (Shift+Enter)"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-up"/></svg></button><button id="search-next" aria-label="Next matching commit" title="Next match (Enter)"><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-down"/></svg></button>
     </div>
     <span class="spacer"></span>
+    <button id="assistant-button" data-repo aria-expanded="false" aria-controls="assistant-panel">Assistant</button>
     <button id="details-button" data-repo><svg class="chrome-icon" aria-hidden="true"><use href="#chrome-panel"/></svg>Details</button>
     <button id="checkpoints-button" data-repo title="Save or restore snapshots of your files">Checkpoints</button>
     <span class="experiment-bar" id="experiment-bar" hidden>Experiment<button id="experiment-keep" data-repo title="Merge this experiment into the branch it started from">Keep it</button><button id="experiment-discard" data-repo title="Delete this experiment and return to where you were">Throw it away</button></span>
@@ -160,7 +161,7 @@ export const markup = `
   </dialog>
   <dialog class="branch-dialog wide-dialog" id="ai-dialog" aria-labelledby="ai-title">
     <div class="dialog-head"><h2 id="ai-title">AI</h2><span class="spacer"></span><button type="button" id="ai-settings-open">AI settings</button><form method="dialog"><button type="submit">Close</button></form></div>
-    <form id="key-form" class="form-grid" hidden>
+    <p id="ai-key-storage" role="status"></p><form id="key-form" class="form-grid" hidden>
       <label for="ai-preset">AI provider</label><select id="ai-preset"></select>
       <label for="ai-base-url" data-ai="openai">API address</label><input id="ai-base-url" data-ai="openai" autocomplete="off" placeholder="https://api.example.com/v1">
       <label for="ai-model" data-ai="openai">Model</label><input id="ai-model" data-ai="openai" autocomplete="off" placeholder="model name">

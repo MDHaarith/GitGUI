@@ -149,16 +149,29 @@ unpushed for a day, and code that exists only on this computer.
 **Write message with AI** drafts the commit message. Requests go to
 `claude-opus-5-5` through `curl` with server-side fallback enabled
 (`fallbacks: "default"`); the key comes from `ANTHROPIC_API_KEY`, the key saved in
-the app (`~/.config/com.gitgui.app/anthropic-key`, mode 0600), or `ant auth`.
+the OS credential store, or `ant auth`. Existing private key files migrate on first read;
+settings report when no credential store is available and a private file is used.
 Changes over about 100k tokens are refused rather than cut. The dialog shows each
 answer's tokens and cost and a running total.
 
-**AI settings** switches the provider: DeepSeek, OpenAI, OpenRouter, Groq, Ollama,
-or any OpenAI-compatible `/chat/completions` API (address, model, key), or a
+**Assistant** opens a repository chat alongside Git. Read-only tools inspect status,
+working or commit diffs, recent history, files at a commit, and branches. Commits
+permission adds staging and committing; Everything adds branch creation, switching,
+and stashing. Every write needs an Allow click and saves a checkpoint. Calls and
+results stay visible in the chat; Enter sends, Shift+Enter adds a line, and answers
+can be copied as Markdown. HTTP requests run outside the Git lock. Command-line
+agents provide plain chat without GitGUI tools.
+
+**AI settings** switches the provider: Gemini, DeepSeek, OpenAI, OpenRouter, Groq,
+Mistral, xAI, Ollama, LM Studio, or any OpenAI-compatible `/chat/completions` API (address, model, key), or a
 command-line agent such as `codex exec -`, `claude -p`, or `opencode run` that reads
 the request on stdin. Agents run in an empty temporary folder for up to 10 minutes,
-so they cannot edit the project. Settings live in
-`~/.config/com.gitgui.app/ai-provider.json` (mode 0600); only Claude answers are priced.
+with GitGUI's repository tools unavailable. These are user-configured programs,
+not an OS sandbox. Settings live in
+`~/.config/com.gitgui.app/ai-provider.json` without API keys; keys use Secret Service
+on Linux, Keychain on macOS, or Credential Manager on Windows. A private file is
+used only when the credential service is unavailable; a locked store must be
+unlocked. Only Claude answers are priced.
 
 **Try something risky** starts a `try/<name>` branch; **Keep it** merges it back
 with a merge commit, **Throw it away** deletes it after saving a checkpoint.

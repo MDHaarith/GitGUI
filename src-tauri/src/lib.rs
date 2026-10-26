@@ -444,16 +444,62 @@ async fn ask_claude(
         .map_err(|e| format!("Claude task failed: {e}"))?
 }
 #[tauri::command]
-fn get_ai_provider() -> assist::Provider {
-    assist::public_provider()
+async fn assistant_chat(
+    repo_id: u64,
+    messages: Vec<assist::chat::Message>,
+    permission: assist::chat::Permission,
+    state: State<'_, AppState>,
+) -> git::Result<assist::chat::Reply> {
+    let context = task(state, false, move |b| {
+        let info = b.status(repo_id)?;
+        Ok(format!(
+            "{} · {}",
+            info.root,
+            info.branch.as_deref().unwrap_or("detached HEAD")
+        ))
+    })
+    .await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        assist::chat::turn(&messages, permission, &context)
+    })
+    .await
+    .map_err(|e| format!("Assistant task failed: {e}"))?
 }
 #[tauri::command]
-fn save_ai_provider(provider: assist::Provider) -> git::Result<()> {
-    assist::save_provider(provider)
+async fn assistant_tool(
+    repo_id: u64,
+    call: assist::chat::ToolCall,
+    permission: assist::chat::Permission,
+    allow: bool,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<String> {
+    let write = assist::chat::is_write(&call.name);
+    let output = task(state, write, move |b| {
+        b.assistant_tool(repo_id, &call, permission, allow, &token)
+    })
+    .await;
+    tauri::async_runtime::spawn_blocking(move || assist::sanitize_output(output))
+        .await
+        .map_err(|_| "Assistant result task failed")?
+}
+#[tauri::command]
+async fn get_ai_provider() -> git::Result<assist::PublicProvider> {
+    tauri::async_runtime::spawn_blocking(assist::public_provider)
+        .await
+        .map_err(|_| "Key storage task failed")?
+}
+#[tauri::command]
+async fn save_ai_provider(provider: assist::Provider) -> git::Result<()> {
+    tauri::async_runtime::spawn_blocking(move || assist::save_provider(provider))
+        .await
+        .map_err(|_| "Key storage task failed")?
 }
 #[tauri::command]
 async fn set_api_key(key: String) -> git::Result<()> {
-    assist::save_key(&key)
+    tauri::async_runtime::spawn_blocking(move || assist::save_key(&key))
+        .await
+        .map_err(|_| "Key storage task failed")?
 }
 #[tauri::command]
 async fn run_project(
@@ -953,6 +999,8 @@ pub fn run() {
             code_map,
             save_agent_rules,
             ask_claude,
+            assistant_chat,
+            assistant_tool,
             set_api_key,
             get_ai_provider,
             save_ai_provider,

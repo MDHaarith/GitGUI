@@ -24,8 +24,15 @@ export interface Answer { text: string; inputTokens: number; outputTokens: numbe
 export interface AiProvider { kind: 'claude' | 'openai' | 'command'; baseUrl: string; model: string; apiKey: string; command: string }
 
 export interface CommitOptions { signoff: boolean; author: string | null }
+export type AiPermission = 'read-only' | 'commits' | 'everything';
+export interface ToolCall { id: string; name: string; input: Record<string, unknown> }
+export interface ChatMessage { role: 'user' | 'assistant' | 'tool'; text: string; calls: ToolCall[]; toolId: string | null }
+export interface ChatReply { message: ChatMessage; inputTokens: number; outputTokens: number; provider: string }
+export interface PublicAiProvider extends Omit<AiProvider, 'apiKey'> { keySet: boolean; keyStorage: 'credential-store' | 'private-file' }
 
 export const api = {
+  assistantChat: (repoId: number, messages: ChatMessage[], permission: AiPermission) => invoke<ChatReply>('assistant_chat', { repoId, messages, permission }),
+  assistantTool: (repoId: number, call: ToolCall, permission: AiPermission, allow: boolean, token: string) => invoke<string>('assistant_tool', { repoId, call, permission, allow, token }),
   startup: () => invoke<string | null>('startup_path'),
   open: (path: string) => invoke<RepoInfo>('open_repository', { path }),
   closeRepository: (repoId: number) => invoke<void>('close_repository', { repoId }),
@@ -65,7 +72,7 @@ export const api = {
   pullRequestBase: (repoId: number) => invoke<string>('pull_request_base', { repoId }),
   createPullRequest: (repoId: number, title: string, body: string, base: string) => invoke<string>('create_pull_request', { repoId, title, body, base }),
   openPullRequest: (url: string) => invoke<void>('open_pull_request', { url }),
-  aiProvider: () => invoke<AiProvider>('get_ai_provider'),
+  aiProvider: () => invoke<PublicAiProvider>('get_ai_provider'),
   saveAiProvider: (provider: AiProvider) => invoke<null>('save_ai_provider', { provider }),
   setApiKey: (key: string) => invoke<null>('set_api_key', { key }),
   runProject: (repoId: number, output: (line: string) => void) => invoke<string>('run_project', { repoId, onOutput: new Channel<string>(output) }),
