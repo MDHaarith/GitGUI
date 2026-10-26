@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.22.0 — 2026-10-26
+- VS Code extension 0.2.0: inline blame on the current line, a Commits view with read-only diffs, an SVG commit graph, and rename-aware file history
+
 ## 0.21.0 — 2026-10-26
 - Releases add a .deb, a portable Linux .tar.gz, and SHA256SUMS.txt covering every asset
 - One-line installers (scripts/get.sh, scripts/get.ps1) download the latest release and refuse it if the checksum does not match

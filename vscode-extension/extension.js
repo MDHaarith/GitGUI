@@ -2,6 +2,8 @@ const vscode = require('vscode');
 const { existsSync } = require('node:fs');
 const { spawn } = require('node:child_process');
 const { launchCommand } = require('./launch');
+const { activateHistory } = require('./history');
+const { revision } = require('./git-data');
 
 async function showMissing() {
   const choice = await vscode.window.showErrorMessage(
@@ -18,7 +20,11 @@ function reportSpawnError(error) {
 }
 
 function activate(context) {
-  context.subscriptions.push(vscode.commands.registerCommand('gitgui.open', async resource => {
+  context.subscriptions.push(vscode.commands.registerCommand('gitgui.open', async (resource, commit) => {
+    if (commit !== undefined) {
+      try { revision(commit); }
+      catch (error) { await vscode.window.showErrorMessage(error.message); return; }
+    }
     let folder = resource instanceof vscode.Uri ? resource : undefined;
     if (!folder) {
       const folders = vscode.workspace.workspaceFolders || [];
@@ -48,6 +54,7 @@ function activate(context) {
       configured: vscode.workspace.getConfiguration('gitgui').get('executablePath', '')
     });
     if (!launch) return showMissing();
+    if (commit) launch.args.push('--commit', commit);
 
     try {
       const child = spawn(launch.command, launch.args, { detached: true, stdio: 'ignore' });
@@ -57,6 +64,7 @@ function activate(context) {
       await reportSpawnError(error);
     }
   }));
+  activateHistory(context);
 }
 
 function deactivate() {}

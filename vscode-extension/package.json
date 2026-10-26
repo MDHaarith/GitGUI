@@ -1,45 +1,138 @@
 {
   "name": "gitgui",
   "displayName": "GitGUI",
-  "description": "Open your repository in the GitGUI desktop app.",
+  "description": "Inline blame, commit history, branch graphs and the GitGUI desktop launcher.",
   "publisher": "MDHaarith",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/MDHaarith/GitGUI"
   },
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["SCM Providers"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "SCM Providers"
+  ],
   "main": "./extension.js",
   "icon": "icon.png",
-  "extensionKind": ["ui"],
-  "activationEvents": [],
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "scripts": {
     "test": "node --test",
     "package": "npx --yes @vscode/vsce package --no-dependencies"
   },
   "contributes": {
-    "commands": [{
-      "command": "gitgui.open",
-      "title": "GitGUI: Open Repository in GitGUI",
-      "icon": "$(git-branch)"
-    }],
+    "commands": [
+      {
+        "command": "gitgui.open",
+        "title": "GitGUI: Open Repository in GitGUI",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "gitgui.showCommitGraph",
+        "title": "GitGUI: Show Commit Graph",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "gitgui.fileHistory",
+        "title": "GitGUI: File History",
+        "icon": "$(history)"
+      },
+      {
+        "command": "gitgui.refreshCommits",
+        "title": "GitGUI: Refresh Commits",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gitgui.loadMoreCommits",
+        "title": "GitGUI: Load More Commits"
+      },
+      {
+        "command": "gitgui.showDiff",
+        "title": "GitGUI: Show Diff"
+      },
+      {
+        "command": "gitgui.openCommit",
+        "title": "GitGUI: Open Commit in GitGUI"
+      }
+    ],
+    "views": {
+      "scm": [
+        {
+          "id": "gitgui.commits",
+          "name": "GitGUI Commits",
+          "icon": "$(git-commit)"
+        }
+      ]
+    },
     "menus": {
-      "scm/title": [{
-        "command": "gitgui.open",
-        "when": "scmProvider == git",
-        "group": "navigation"
-      }],
-      "explorer/context": [{
-        "command": "gitgui.open",
-        "when": "explorerResourceIsFolder",
-        "group": "navigation"
-      }]
+      "scm/title": [
+        {
+          "command": "gitgui.open",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "gitgui.refreshCommits",
+          "when": "view == gitgui.commits",
+          "group": "navigation"
+        },
+        {
+          "command": "gitgui.showCommitGraph",
+          "when": "view == gitgui.commits",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "gitgui.showDiff",
+          "when": "false"
+        },
+        {
+          "command": "gitgui.openCommit",
+          "when": "false"
+        },
+        {
+          "command": "gitgui.loadMoreCommits",
+          "when": "false"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "gitgui.fileHistory",
+          "when": "resourceScheme == file",
+          "group": "gitgui"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "gitgui.open",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation"
+        },
+        {
+          "command": "gitgui.fileHistory",
+          "when": "!explorerResourceIsFolder && resourceScheme == file",
+          "group": "gitgui"
+        }
+      ]
     },
     "configuration": {
       "title": "GitGUI",
       "properties": {
+        "gitgui.inlineBlame": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the active line's author, age and commit summary. Suppressed for untracked or modified files."
+        },
         "gitgui.executablePath": {
           "type": "string",
           "default": "",

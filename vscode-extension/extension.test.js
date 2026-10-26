@@ -45,6 +45,8 @@ function extension(state = {}) {
       calls.configured = options.configured;
       return state.missing ? null : { command: 'gitgui', args: [folder] };
     } },
+    './history': { activateHistory() {} },
+    './git-data': require('./git-data'),
     'node:child_process': { spawn(command, args, options) {
       if (state.spawnError) throw state.spawnError;
       calls.spawn = { command, args, options: { ...options } };
@@ -131,4 +133,15 @@ test('synchronous and asynchronous spawn errors are reported', async () => {
   assert.match(asyncCalls.errors[0].message, /permission denied/);
   await asyncCalls.onError(Object.assign(new Error('missing'), { code: 'ENOENT' }));
   assert.deepEqual(asyncCalls.external, ['https://github.com/MDHaarith/GitGUI/releases']);
+});
+
+test('commit links pass a validated revision without changing normal launch arguments', async () => {
+  const calls = extension();
+  const oid = 'a'.repeat(40);
+  await calls.open(first.uri, oid);
+  assert.deepEqual(calls.spawn.args, [first.uri.fsPath, '--commit', oid]);
+  const invalid = extension();
+  await invalid.open(first.uri, '--help');
+  assert.equal(invalid.spawn, undefined);
+  assert.match(invalid.errors[0].message, /revision/);
 });
