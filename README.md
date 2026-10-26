@@ -47,6 +47,15 @@ The macOS and Windows builds are not signed with a paid certificate yet:
   Open, or run `xattr -dr com.apple.quarantine /Applications/GitGUI.app`.
 - **Windows:** if SmartScreen warns, choose More info, then Run anyway.
 
+## VS Code extension
+
+`vscode-extension/` adds **GitGUI: Open Repository in GitGUI** to VS Code, with a
+button in the Source Control title bar and an Explorer folder menu entry. Download
+`gitgui-<version>.vsix` from the releases page (or run `npm run package` in
+`vscode-extension/`) and install it with
+`code --install-extension gitgui-<version>.vsix`. It launches the installed
+desktop app; see `vscode-extension/README.md`.
+
 ## Run the built app
 
 ```sh

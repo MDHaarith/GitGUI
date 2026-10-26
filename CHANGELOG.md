@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.20.0 — 2026-10-26
+- VS Code extension (`vscode-extension/`): "Open Repository in GitGUI" from the command palette, Source Control title bar, or Explorer
+- CI tests every push on Linux, macOS, and Windows, and adds the macOS .dmg, Windows installer, and VS Code .vsix to each published release
+
 ## 0.19.0 — 2026-10-26
 - Builds and runs on macOS and Windows: process spawning, browser opening, dates, and stopping runs no longer depend on Linux tools
 - Windows: Git and helper commands no longer flash a console window; untracked files can be previewed

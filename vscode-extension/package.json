@@ -1,0 +1,52 @@
+{
+  "name": "gitgui",
+  "displayName": "GitGUI",
+  "description": "Open your repository in the GitGUI desktop app.",
+  "publisher": "MDHaarith",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MDHaarith/GitGUI"
+  },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["SCM Providers"],
+  "main": "./extension.js",
+  "icon": "icon.png",
+  "extensionKind": ["ui"],
+  "activationEvents": [],
+  "scripts": {
+    "test": "node --test",
+    "package": "npx --yes @vscode/vsce package --no-dependencies"
+  },
+  "contributes": {
+    "commands": [{
+      "command": "gitgui.open",
+      "title": "GitGUI: Open Repository in GitGUI",
+      "icon": "$(git-branch)"
+    }],
+    "menus": {
+      "scm/title": [{
+        "command": "gitgui.open",
+        "when": "scmProvider == git",
+        "group": "navigation"
+      }],
+      "explorer/context": [{
+        "command": "gitgui.open",
+        "when": "explorerResourceIsFolder",
+        "group": "navigation"
+      }]
+    },
+    "configuration": {
+      "title": "GitGUI",
+      "properties": {
+        "gitgui.executablePath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Absolute path to the GitGUI executable. Leave empty to detect the installed desktop app."
+        }
+      }
+    }
+  }
+}
