@@ -91,7 +91,8 @@ export const markup = `
     </aside>
     </div>
     <section class="changes" id="changes" aria-label="Working changes" hidden>
-      <header class="panelbar"><h2>Working changes</h2><span id="operation-note" class="muted"></span><button id="operation-continue" class="chip" hidden title="Finish the merge, rebase, cherry-pick or revert now that conflicts are resolved">Continue</button><button id="operation-abort" hidden title="Cancel it and go back to how things were before it started">Abort</button><span class="spacer"></span><button id="stash-changes" data-repo title="Put all changes aside (a stash) and bring them back later from Tools › Stashes">Stash</button><button id="undo-commit" data-repo title="Take back the last commit (if not pushed yet); its changes stay staged">Undo last commit</button><button type="button" id="file-tree-toggle" aria-pressed="false" title="Group changed files into collapsible folders">Folder tree</button><button id="close-changes">Close</button></header>
+      <header class="panelbar"><h2>Working changes</h2><span id="operation-note" class="muted"></span><button id="operation-continue" class="chip" hidden title="Finish the merge, rebase, cherry-pick or revert now that conflicts are resolved">Continue</button><button id="operation-skip" hidden title="Skip the current commit; a checkpoint is saved first">Skip</button><button id="operation-abort" hidden title="Cancel it and go back to how things were before it started">Abort</button><span class="spacer"></span><button id="stash-changes" data-repo title="Put all changes aside (a stash) and bring them back later from Tools › Stashes">Stash</button><button id="undo-commit" data-repo title="Take back the last commit (if not pushed yet); its changes stay staged">Undo last commit</button><button type="button" id="file-tree-toggle" aria-pressed="false" title="Group changed files into collapsible folders">Folder tree</button><button id="close-changes">Close</button></header>
+      <section id="conflicts-dashboard" aria-label="Conflicts dashboard" hidden></section>
       <div class="changes-body">
         <div class="file-list" id="file-list"></div>
         <div class="working-preview"><div class="preview-head"><div class="preview-label" id="working-path">Select a file to review its diff.</div><button type="button" class="diff-toggle" aria-pressed="false" title="Show old and new side by side">Side by side</button></div><pre class="diff" id="working-diff"></pre></div>
@@ -264,7 +265,7 @@ export const markup = `
   </dialog>
   <dialog class="branch-dialog wide-dialog" id="conflict-dialog" aria-labelledby="conflict-title">
     <div class="dialog-head"><h2 id="conflict-title">Resolve conflict</h2><form method="dialog"><button type="submit">Cancel</button></form></div>
-    <p class="muted">Each block below is a place where both sides changed the same lines. Pick what to keep for every block, then save.</p>
+    <p class="muted">Edit Result or accept a side for each block. Ignore keeps the base text. A checkpoint is saved before writing the resolved file.</p>
     <div id="conflict-blocks" class="conflict-blocks"></div>
     <div class="dialog-foot"><button class="primary" id="conflict-save" type="button">Save and mark fixed</button></div>
   </dialog>

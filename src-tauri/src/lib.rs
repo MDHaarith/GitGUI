@@ -660,15 +660,41 @@ async fn get_conflict(
     task(state, false, move |b| b.conflict_text(repo_id, &file_id)).await
 }
 #[tauri::command]
-async fn save_resolution(
+async fn get_merge_versions(
     repo_id: u64,
     file_id: String,
-    content: String,
+    state: State<'_, AppState>,
+) -> git::Result<git::MergeVersions> {
+    task(state, false, move |b| b.merge_versions(repo_id, &file_id)).await
+}
+#[tauri::command]
+async fn skip_operation(
+    repo_id: u64,
     token: String,
     state: State<'_, AppState>,
 ) -> git::Result<RepoInfo> {
     task(state, true, move |b| {
-        b.save_resolution(repo_id, &file_id, &content, &token)
+        b.with_undo(repo_id, "Skip operation", |b| {
+            b.skip_operation(repo_id, &token)
+        })
+    })
+    .await
+}
+#[tauri::command]
+async fn save_resolution(
+    repo_id: u64,
+    file_id: String,
+    content: String,
+    original: Option<String>,
+    token: String,
+    state: State<'_, AppState>,
+) -> git::Result<RepoInfo> {
+    task(state, true, move |b| {
+        if let Some(original) = original {
+            b.save_merge_resolution(repo_id, &file_id, &content, &original, &token)
+        } else {
+            b.save_resolution(repo_id, &file_id, &content, &token)
+        }
     })
     .await
 }
@@ -1063,6 +1089,8 @@ pub fn run() {
             file_history,
             file_blame,
             get_conflict,
+            get_merge_versions,
+            skip_operation,
             pull_request_base,
             create_pull_request,
             open_pull_request,

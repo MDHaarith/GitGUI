@@ -6,7 +6,8 @@ import { api, type AiProvider, type Answer, type Checkpoint, type Session, type 
 import { element, findCommits, laneColors, layoutHistory, paintGraph, type Layout } from './graph.ts';
 import { fileMap, searchSymbols, type CodeGraph } from './codemap.ts';
 import { changedRange, numberDiff, pairLines, type DiffLine } from './diff.ts';
-import { isBlock, parseConflicts, resolveConflicts, type Choice, type Segment } from './conflict.ts';
+import { openMergeEditor, renderConflictsDashboard } from './merge-editor.ts';
+import { operationControls } from './merge.ts';
 import { isNewer } from './update.ts';
 import { wireDropdown } from './dropdown.ts';
 import { wireGithub } from './github.ts';
@@ -152,7 +153,8 @@ function updateControls() {
   disable('ai-explain', unavailable || (!stagedFiles().length ? 'Stage the files to explain first.' : ''));
   disable('publish', blocked || (!repo?.head ? 'Create the first commit before publishing.' : ''));
   disable('undo-commit', blocked || (!repo?.head ? 'There is no commit yet.' : ''));
-  for (const id of ['operation-continue', 'operation-abort']) button(id).disabled = busy;
+  for (const id of ['operation-continue', 'operation-skip', 'operation-abort']) button(id).disabled = busy;
+  button('operation-continue').disabled = busy || !operationControls(repo?.operation ?? null, repo?.files.filter(file => file.conflicted).length ?? 0).canContinue;
   disable('remote-submit', unavailable || (!select('remote-select').value ? 'Choose a configured remote.' : ''));
   select('scope').disabled = busy || !repo;
   input('history-search').disabled = busy || !repo;
@@ -231,8 +233,14 @@ function renderInfo() {
   get('version-controls').hidden = !repo?.versioning; get('enable-versioning').hidden = !repo || repo.versioning;
   get('repo-version').textContent = repo?.version ? 'v' + repo.version : 'none';
   renderHints(repo ? explainState(repo) : [], repo ? health : []);
-  get('operation-note').textContent = repo?.operation === 'unresolved conflicts' ? 'Resolve each conflicted file below.' : repo?.operation ? 'A ' + repo.operation + ' is in progress.' : '';
-  get('operation-continue').hidden = !repo?.operation || repo.operation === 'unresolved conflicts'; get('operation-abort').hidden = !repo?.operation;
+  const conflicts = repo?.files.filter(file => file.conflicted).length ?? 0;
+  const controls = operationControls(repo?.operation ?? null, conflicts);
+  get('operation-note').textContent = repo?.operation ? `${repo.operation} · ${conflicts} conflicted files left` : '';
+  for (const [id, label] of [['operation-continue', 'Continue'], ['operation-skip', 'Skip'], ['operation-abort', 'Abort']]) {
+    get(id).textContent = label + ' ' + (repo?.operation ?? '');
+    get(id).hidden = id === 'operation-skip' ? !controls.canSkip : !controls.supported;
+  }
+  if (conflicts) get('changes').hidden = false;
   const trying = !!repo?.branch?.startsWith('try/');
   get('experiment-button').hidden = trying; get('experiment-bar').hidden = !trying;
 }
@@ -725,8 +733,13 @@ async function finishExperiment(keep: boolean) {
 }
 async function abortOperation() {
   if (!repo?.operation || busy) return;
-  if (!await confirm('Abort and go back to how everything was before it started? Conflict choices made so far are lost.', { title: 'Abort', kind: 'warning' })) return;
+  if (!await confirm('Abort and go back to how everything was before it started? A checkpoint saves your current files first.', { title: 'Abort', kind: 'warning' })) return;
   await mutate('Aborting…', () => api.finishOperation(repo!.id, true, repo!.token));
+}
+async function skipOperation() {
+  if (!repo || busy) return;
+  if (!await confirm('Skip the current commit in this ' + repo.operation + '? A checkpoint saves your current files first.', { title: 'Skip ' + repo.operation, kind: 'warning' })) return;
+  await mutate('Skipping ' + repo.operation + '…', () => api.skipOperation(repo!.id, repo!.token));
 }
 async function undoCommit() {
   if (!repo || busy) return;
@@ -983,6 +996,9 @@ let treeFiles = stored('fileTree') === '1';
 button('file-tree-toggle').setAttribute('aria-pressed', String(treeFiles));
 button('file-tree-toggle').onclick = () => { treeFiles = !treeFiles; save('fileTree', treeFiles ? '1' : '0'); button('file-tree-toggle').setAttribute('aria-pressed', String(treeFiles)); renderFiles(); };
 function renderFiles() {
+  renderConflictsDashboard(get('conflicts-dashboard'), repo, busy, file => { void openConflict(file); }, (file, choice) => {
+    if (repo) void mutate('Resolving ' + file.path + '…', () => api.resolveConflict(repo!.id, file.id, choice, repo!.token));
+  });
   const list = get('file-list'); list.replaceChildren();
   const groups: [string, FileInfo[], boolean | null][] = [
     ['Staged', stagedFiles(), true],
@@ -1023,12 +1039,12 @@ function renderFiles() {
       }
       const kind = document.createElement('span'); kind.className = 'file-kind'; kind.textContent = file.submodule ? 'S' : file.conflicted ? 'U' : file.untracked ? '?' : staged ? file.index : file.worktree; row.append(kind);
       const nameButton = document.createElement('button'); nameButton.type = 'button'; nameButton.className = 'file-name'; nameButton.dataset.key = (staged ? 's' : 'u') + file.id; nameButton.title = (file.oldPath ? file.oldPath + ' → ' : '') + file.path; nameButton.textContent = '\u200e' + (treeFiles ? file.path.slice(file.path.lastIndexOf('/') + 1) : nameButton.title) + '\u200e';
-      nameButton.addEventListener('click', () => { void showWorkingFile(file, !!staged); }); row.append(nameButton);
+      nameButton.addEventListener('click', () => { if (file.conflicted) void openConflict(file); else void showWorkingFile(file, !!staged); }); row.append(nameButton);
       if (staged === null) {
-        const resolve = document.createElement('button'); resolve.type = 'button'; resolve.textContent = 'Resolve…'; resolve.title = 'Pick yours, theirs, or both for each conflicting block'; resolve.disabled = busy;
+        const resolve = document.createElement('button'); resolve.type = 'button'; resolve.textContent = 'Merge…'; resolve.title = 'Pick yours, theirs, or both for each conflicting block'; resolve.disabled = busy;
         resolve.setAttribute('aria-label', 'Resolve ' + file.path + ' block by block');
         resolve.addEventListener('click', () => { void openConflict(file); }); row.append(resolve);
-        for (const [label, choice, tip] of [['Keep ours', 'ours', 'Use the version from your current branch (during a rebase: the branch you rebase onto)'], ['Keep theirs', 'theirs', 'Use the incoming version'], ['Mark fixed', 'resolved', 'You edited the file and removed the <<<<<<< ======= >>>>>>> markers']] as const) {
+        for (const [label, choice, tip] of [['Accept Yours', 'ours', 'Use your version (during rebase: your commit being replayed)'], ['Accept Theirs', 'theirs', 'Use the incoming branch (during rebase: the rebase target)'], ['Mark fixed', 'resolved', 'You edited the file and removed the <<<<<<< ======= >>>>>>> markers']] as const) {
           const action = document.createElement('button'); action.type = 'button'; action.textContent = label; action.title = tip; action.disabled = busy;
           action.setAttribute('aria-label', label + ' for ' + file.path);
           action.addEventListener('click', () => { if (repo) void mutate('Resolving ' + file.path + '…', () => api.resolveConflict(repo!.id, file.id, choice, repo!.token)); }); row.append(action);
@@ -1134,44 +1150,28 @@ async function renderFileBlame(id: number, fileId: string, commit: string | null
   } catch (error) { list.textContent = error instanceof Error ? error.message : String(error); }
 }
 
-let conflictFile: FileInfo | null = null;
-let conflictSegments: Segment[] = [];
-function conflictChoices() {
-  return conflictSegments.filter(isBlock).map((_, n) => get('conflict-blocks').querySelector<HTMLInputElement>(`input[name="conflict-${n}"]:checked`)?.value as Choice | undefined);
-}
 async function openConflict(file: FileInfo) {
   if (!repo || busy) return;
+  const id = repo.id;
   await run('Reading conflict…', async () => {
-    conflictSegments = parseConflicts(await api.conflict(repo!.id, file.id)); conflictFile = file;
-    const blocks = conflictSegments.filter(isBlock);
-    if (!blocks.length) throw new Error('No conflict markers are left in ' + file.path + '. If you fixed it by hand, press Mark fixed.');
-    get('conflict-title').textContent = 'Resolve ' + file.path;
-    get('conflict-blocks').replaceChildren(...blocks.map((block, n) => {
-      const section = document.createElement('fieldset'); section.className = 'conflict-block';
-      const legend = document.createElement('legend'); legend.textContent = `Conflict ${n + 1} of ${blocks.length}`; section.append(legend);
-      const sides = document.createElement('div'); sides.className = 'conflict-sides';
-      for (const [title, lines] of [['Yours · ' + (block.oursLabel || 'current branch'), block.ours], ['Incoming · ' + (block.theirsLabel || 'other branch'), block.theirs]] as const) {
-        const side = document.createElement('figure'); const caption = document.createElement('figcaption'); caption.textContent = title;
-        const code = document.createElement('pre'); code.className = 'diff'; code.textContent = lines.join('\n') || '(nothing)'; side.append(caption, code); sides.append(side);
-      }
-      const choices = document.createElement('div'); choices.className = 'row';
-      for (const [value, label] of [['ours', 'Keep yours'], ['theirs', 'Keep incoming'], ['both', 'Keep both']] as const) {
-        const choice = document.createElement('label'); choice.className = 'choice';
-        const radio = document.createElement('input'); radio.type = 'radio'; radio.name = 'conflict-' + n; radio.value = value; radio.onchange = updateConflictSave;
-        choice.append(radio, ' ' + label); choices.append(choice);
-      }
-      section.append(sides, choices); return section;
-    }));
-    updateConflictSave(); dialog('conflict-dialog').showModal(); notify('Ready');
+    const versions = await api.mergeVersions(id, file.id);
+    if (repo?.id !== id) return;
+    openMergeEditor(file, versions, async content => {
+      if (repo?.id !== id || busy) return false;
+      let saved = false;
+      let failure: unknown;
+      await mutate('Resolving ' + file.path + '…', async () => {
+        try {
+          const info = await api.saveResolution(id, file.id, content, versions.token, versions.working);
+          saved = true; return info;
+        } catch (error) { failure = error; throw error; }
+      });
+      if (failure) throw failure;
+      return saved;
+    });
+    notify('Ready');
   });
 }
-function updateConflictSave() { disable('conflict-save', conflictChoices().includes(undefined) ? 'Choose what to keep for every conflict.' : ''); }
-button('conflict-save').onclick = () => {
-  const file = conflictFile; const choices = conflictChoices();
-  if (!repo || !file || choices.includes(undefined)) return;
-  const content = resolveConflicts(conflictSegments, choices as Choice[]); dialog('conflict-dialog').close();
-  void mutate('Resolving ' + file.path + '…', () => api.saveResolution(repo!.id, file.id, content, repo!.token));
-};
 async function showWorkingFile(file: FileInfo, staged: boolean) {
   if (!repo || busy) return;
   workingFile = { id: file.id, staged }; renderFiles();
@@ -1538,6 +1538,7 @@ get<HTMLFormElement>('experiment-form').onsubmit = event => { event.preventDefau
 button('experiment-keep').onclick = () => { void finishExperiment(true); };
 button('experiment-discard').onclick = () => { void finishExperiment(false); };
 button('operation-continue').onclick = () => { if (repo) void mutate('Continuing ' + repo.operation + '…', () => api.finishOperation(repo!.id, false, repo!.token)); };
+button('operation-skip').onclick = () => { void skipOperation(); };
 button('operation-abort').onclick = () => { void abortOperation(); };
 button('undo-commit').onclick = () => { void undoCommit(); };
 button('rebase-button').onclick = () => { void openRebase(); };

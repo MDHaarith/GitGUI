@@ -27,6 +27,7 @@ mod files;
 pub mod github;
 mod history;
 pub mod mcp;
+mod merge;
 pub mod output_log;
 mod process;
 mod rebase;
@@ -36,6 +37,7 @@ mod undo;
 mod vibe;
 pub use daily::{Junk, Stash};
 pub use files::{BlameLine, FileCommit};
+pub use merge::MergeVersions;
 pub(crate) use process::config;
 pub use process::redact;
 use process::*;
@@ -874,7 +876,7 @@ impl Repository {
             }
         }
         let mut operation = self.in_progress()?.map(str::to_owned);
-        if files.iter().any(|f| f.conflicted) {
+        if operation.is_none() && files.iter().any(|f| f.conflicted) {
             operation = Some("unresolved conflicts".into());
         }
         let mut remotes = Vec::new();
@@ -964,14 +966,25 @@ impl Repository {
     }
     fn in_progress(&self) -> Result<Option<&'static str>> {
         for (name, label) in [
-            ("MERGE_HEAD", "merge"),
             ("rebase-merge", "rebase"),
             ("rebase-apply", "rebase"),
+            ("MERGE_HEAD", "merge"),
             ("CHERRY_PICK_HEAD", "cherry-pick"),
             ("REVERT_HEAD", "revert"),
             ("sequencer", "sequencer"),
         ] {
             if self.metadata(name)?.exists() {
+                if label == "sequencer" {
+                    let todo = fs::read_to_string(self.metadata("sequencer/todo")?)
+                        .map_err(|e| e.to_string())?;
+                    return Ok(Some(if todo.starts_with("pick ") {
+                        "cherry-pick"
+                    } else if todo.starts_with("revert ") {
+                        "revert"
+                    } else {
+                        "sequencer"
+                    }));
+                }
                 return Ok(Some(label));
             }
         }

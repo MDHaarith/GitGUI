@@ -537,3 +537,55 @@ test('blame tints commit ages and opens history for the selected lines', async (
     await tab.waitForFunction(() => !document.querySelector('#operation-feedback:not([hidden])'));
   } finally { await tab.evaluate(() => { document.getElementById('line-history-dialog').close(); document.getElementById('file-history-dialog').close(); window.restoreBlameInvoke(); }); }
 });
+
+test('merge dashboard, rebase side labels, editable result and resolution save work together', async () => {
+  const conflictRepo = { ...repo, operation: 'rebase', files: repo.files.map(file => ({ ...file, conflicted: true, index: 'U', worktree: 'U' })) };
+  const remaining = { ...conflictRepo, files: [conflictRepo.files[1]] };
+  const versions = { base: 'top\nbase\nend\n', ours: 'top\ntarget\nend\n', theirs: 'top\nmy commit\nend\n', working: 'top\n<<<<<<< HEAD\ntarget\n=======\nmy commit\n>>>>>>> topic\nend\n', rebasing: true, token: 'reviewed' };
+  const mergeTab = await browser.newPage({ viewport: { width: 800, height: 700 } });
+  await mergeTab.addInitScript(mockTauri, { ...responses, open_repository: conflictRepo, get_status: conflictRepo, get_merge_versions: versions, save_resolution: remaining });
+  await mergeTab.addInitScript(() => {
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    window.mergeCalls = [];
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => { if (command === 'save_resolution') window.mergeCalls.push(args); return invoke(command, args); };
+  });
+  try {
+    await mergeTab.goto(server.resolvedUrls.local[0]);
+    await mergeTab.locator('#conflicts-dashboard').waitFor();
+    assert.match(await mergeTab.locator('#conflicts-dashboard h3').textContent(), /2 files left/);
+    assert.equal(await mergeTab.locator('#operation-continue').isDisabled(), true);
+    assert.equal(await mergeTab.locator('#operation-skip').textContent(), 'Skip rebase');
+    await mergeTab.locator('#conflicts-dashboard').getByRole('button', { name: 'Merge… · src/app.ts', exact: true }).click();
+    await mergeTab.locator('#conflict-dialog[open]').waitFor();
+    assert.deepEqual(await mergeTab.locator('.merge-headings strong').allTextContents(), ['Yours · replayed commit', 'Result · editable', 'Theirs · rebase target']);
+    assert.equal(await mergeTab.locator('#conflict-save').isDisabled(), true);
+    assert.equal(await mergeTab.locator('.merge-legend .merge-kind').count(), 4);
+    assert.equal(await mergeTab.locator('#conflict-dialog').evaluate(dialog => dialog.scrollWidth > dialog.clientWidth), false);
+    const block = mergeTab.locator('.merge-block.merge-conflict');
+    assert.equal(await block.locator('pre').first().textContent(), 'my commit\n');
+    await block.getByRole('button', { name: 'Accept Yours', exact: true }).click();
+    await block.locator('textarea').fill('edited replayed commit\n');
+    await mergeTab.getByRole('button', { name: 'Resolve simple', exact: true }).click();
+    assert.equal(await block.locator('textarea').inputValue(), 'edited replayed commit\n');
+    await mergeTab.locator('#conflict-save').click();
+    await mergeTab.locator('#conflict-dialog').waitFor({ state: 'hidden' });
+    assert.deepEqual(await mergeTab.evaluate(() => window.mergeCalls), [{ repoId: 1, fileId: '61', content: 'top\nedited replayed commit\nend\n', token: 'reviewed', original: versions.working }]);
+    assert.match(await mergeTab.locator('#conflicts-dashboard h3').textContent(), /1 files left/);
+    assert.equal(await mergeTab.locator('#file-tree-toggle').count(), 1);
+  } finally { await mergeTab.close(); }
+});
+
+test('merge automation resolves simple markers and failed saves leave the editable result open', async () => {
+  await tab.evaluate(async () => {
+    const { openMergeEditor } = await import('/src/merge-editor.ts');
+    openMergeEditor({ id: 'a', path: 'example.txt' }, { base: 'top\r\nbase\r\nend\r\n', ours: 'top\r\nchanged\r\nend\r\n', theirs: 'top\r\nbase\r\nend\r\n', working: 'top\r\n<<<<<<< HEAD\r\nchanged\r\n=======\r\nbase\r\n>>>>>>> topic\r\nend\r\n', rebasing: false, token: 't' }, async content => { window.mergeResult = content; throw new Error('Working file changed; reopen it.'); });
+  });
+  try {
+    await tab.getByRole('button', { name: 'Apply non-conflicting changes', exact: true }).click();
+    assert.equal(await tab.locator('#conflict-save').isDisabled(), false);
+    await tab.locator('#conflict-save').click();
+    await tab.locator('#conflict-dialog [role="alert"]').waitFor();
+    assert.equal(await tab.evaluate(() => window.mergeResult), 'top\r\nchanged\r\nend\r\n');
+    assert.equal(await tab.locator('#conflict-dialog').evaluate(dialog => dialog.open), true);
+  } finally { await tab.evaluate(() => document.getElementById('conflict-dialog').close()); }
+});

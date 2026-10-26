@@ -346,25 +346,34 @@ impl Backend {
         if !info.files.iter().any(|f| f.id == file_id && f.conflicted) {
             return Err("That file has no conflict. Refresh and try again.".into());
         }
-        let path = repo.paths.get(file_id).ok_or("Unknown file")?.clone();
+        let path = repo.conflict_path(&info, file_id)?;
         match choice {
-            "ours" | "theirs" => repo.write(
-                &[
-                    os("checkout"),
-                    os(&format!("--{choice}")),
-                    os("--"),
-                    path.clone(),
-                ],
-                None,
-                None,
-                None,
-            )?,
+            "ours" | "theirs" => {
+                let stage = match (choice, repo.in_progress()? == Some("rebase")) {
+                    ("ours", false) | ("theirs", true) => 2,
+                    _ => 3,
+                };
+                let present = repo.merge_stage(&path, stage)?.is_some();
+                repo.save_checkpoint("Before accepting a conflict side")?;
+                if !present {
+                    repo.write(&[os("rm"), os("-f"), os("--"), path], None, None, None)?;
+                    return repo.info();
+                }
+                repo.write(
+                    &[
+                        os("checkout"),
+                        os(if stage == 2 { "--ours" } else { "--theirs" }),
+                        os("--"),
+                        path.clone(),
+                    ],
+                    None,
+                    None,
+                    None,
+                )?;
+            }
             "resolved" => {
                 let content = fs::read(repo.root.join(&path)).map_err(|e| e.to_string())?;
-                if content
-                    .split(|b| *b == b'\n')
-                    .any(|l| l.starts_with(b"<<<<<<< ") || l.starts_with(b">>>>>>> "))
-                {
+                if super::merge::has_merge_markers(&content) {
                     return Err("The file still has <<<<<<< or >>>>>>> conflict markers. Remove them first.".into());
                 }
             }
@@ -382,6 +391,12 @@ impl Backend {
             .ok_or("No merge, rebase, cherry-pick, or revert is in progress.")?;
         if operation == "sequencer" {
             return Err("Finish this multi-commit operation in the terminal.".into());
+        }
+        if !abort && repo.info()?.files.iter().any(|f| f.conflicted) {
+            return Err("Resolve every conflicted file before continuing.".into());
+        }
+        if abort {
+            repo.save_checkpoint(&format!("Before aborting {operation}"))?;
         }
         repo.write(
             &argv(&[

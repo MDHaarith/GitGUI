@@ -175,9 +175,13 @@ unlocked. Only Claude answers are priced.
 
 **Try something risky** starts a `try/<name>` branch; **Keep it** merges it back
 with a merge commit, **Throw it away** deletes it after saving a checkpoint.
-**Publish** (shown instead of Fetch, Pull, and Push until a remote exists) creates a private GitHub repository with `gh` or adds an existing empty repository URL, then pushes the main branch you choose first, so it becomes GitHub's default, followed by the current branch. Conflicted files get
-Keep ours, Keep theirs, Mark fixed (refused while markers remain), and Explain;
-Continue and Abort finish the merge, rebase, cherry-pick, or revert. **Undo last
+**Publish** (shown instead of Fetch, Pull, and Push until a remote exists) creates a private GitHub repository with `gh` or adds an existing empty repository URL, then pushes the main branch you choose first, so it becomes GitHub's default, followed by the current branch. Conflicted files appear in a dashboard with Accept Yours, Accept Theirs, and
+Merge… for a three-pane editor. Edit Result, accept either side or both per block,
+or Ignore to keep the base; Apply non-conflicting changes and Resolve simple
+handle changes Git can combine safely. Saving marks the file resolved. During a
+rebase, Yours means your commit being replayed. Continue and Abort are labeled for
+the merge, rebase, cherry-pick, or revert; Skip is available except for merges.
+Checkpoints protect files before resolutions, Skip, and Abort. **Undo last
 commit** moves an unpushed commit's changes back to Staged and deletes its version
 tag. **AI rules** edits `AGENTS.md` (with starter rules) and links it from
 `CLAUDE.md`. **Run** starts `git config gitgui.runCommand`, else `npm run dev`/
@@ -390,8 +394,9 @@ env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE \
   2 MiB and 5,000 rendered lines, with an explicit truncation notice.
 - Pull requires a clean working tree and uses fast-forward only. Push sends only
   the current branch and never force-pushes or mirrors other refs.
-- Conflicts are resolved per file or per conflict block (yours, incoming, or both);
-  multi-commit sequencer operations must be completed in the terminal.
+- The merge editor reads index stages 1, 2, and 3 for regular UTF-8 text files
+  within 2 MiB and 5,000 lines per version. Binary, larger, and symbolic-link
+  conflicts can use whole-file Accept Yours / Accept Theirs.
 - Staging works per file, per hunk, or selected changed lines (click or Shift-click).
   History search covers up to 10,000 loaded commits. Amend and undo refuse commits that were already pushed.
 - The update check only sees published releases, not drafts.

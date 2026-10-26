@@ -6,6 +6,7 @@ export interface GraphPage { graphId: number; commits: Commit[]; refs: RefInfo[]
 export interface FileInfo { id: string; path: string; oldPath: string | null; oldId: string | null; index: string; worktree: string; untracked: boolean; conflicted: boolean; submodule: boolean }
 export interface RemoteInfo { id: string; name: string; url: string }
 export interface RepoInfo { id: number; root: string; branch: string | null; head: string | null; detached: boolean; upstream: string | null; ahead: number; behind: number; operation: string | null; remotes: RemoteInfo[]; files: FileInfo[]; token: string; version: string | null; versioning: boolean; refsToken: string }
+export interface MergeVersions { base: string | null; ours: string | null; theirs: string | null; working: string; rebasing: boolean; token: string }
 export interface Preview { text: string; truncated: boolean; binary: boolean }
 export interface CommitFile { id: string; path: string; oldPath: string | null; oldId: string | null; status: string }
 export interface CommitDetails { oid: string; parents: string[]; author: string; email: string; timestamp: number; message: string; parent: string | null; files: CommitFile[]; shallow: boolean }
@@ -96,8 +97,10 @@ export const api = {
   ignore: (repoId: number, fileId: string, folder: boolean, token: string) => invoke<RepoInfo>('ignore_file', { repoId, fileId, folder, token }),
   fileHistory: (repoId: number, fileId: string, commit: string | null = null) => invoke<FileCommit[]>('file_history', { repoId, fileId, commit }),
   fileBlame: (repoId: number, fileId: string, commit: string | null = null) => invoke<BlameLine[]>('file_blame', { repoId, fileId, commit }),
+  mergeVersions: (repoId: number, fileId: string) => invoke<MergeVersions>('get_merge_versions', { repoId, fileId }),
+  skipOperation: (repoId: number, token: string) => invoke<RepoInfo>('skip_operation', { repoId, token }),
   conflict: (repoId: number, fileId: string) => invoke<string>('get_conflict', { repoId, fileId }),
-  saveResolution: (repoId: number, fileId: string, content: string, token: string) => invoke<RepoInfo>('save_resolution', { repoId, fileId, content, token }),
+  saveResolution: (repoId: number, fileId: string, content: string, token: string, original: string | null = null) => invoke<RepoInfo>('save_resolution', { repoId, fileId, content, token, original }),
   junk: (repoId: number) => invoke<Junk[]>('list_junk', { repoId }),
   deleteJunk: (repoId: number, ids: string[], token: string) => invoke<RepoInfo>('delete_junk', { repoId, ids, token }),
   compact: (repoId: number) => invoke<RepoInfo>('compact_repository', { repoId }),

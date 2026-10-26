@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.29.0 — 2026-10-26
+- Three-pane merge editor: yours, incoming and an editable result, with a choice per conflict block; saving checkpoints first
+- Apply non-conflicting changes and Resolve simple fill in the easy parts without touching blocks you edited
+- Conflicts dashboard: take a whole file from either side, open it in the editor, and see how many files are left
+- Continue, Skip and Abort match the operation in progress; during a rebase, Yours means your branch's version
+
 ## 0.28.0 — 2026-10-26
 - Undo (Ctrl/Cmd+Z or the status notice) reverses the last action in each repository tab: commits, deleted branches, file changes and staging; newer work is checkpointed first and pushed commits are never removed
 - Time machine lists where HEAD and the current branch have been, with previews, and restores one after confirming

@@ -447,19 +447,15 @@ impl Backend {
         if !info.files.iter().any(|f| f.id == file_id && f.conflicted) {
             return Err("That file has no conflict. Refresh and try again.".into());
         }
-        if content
-            .lines()
-            .any(|l| l.starts_with("<<<<<<< ") || l.starts_with(">>>>>>> "))
-        {
+        if super::merge::has_merge_markers(content.as_bytes()) {
             return Err("Choose a side for every conflict first.".into());
         }
-        let path = repo.paths.get(file_id).ok_or("Unknown file")?.clone();
-        relative_path(raw(&path))?;
-        let full = repo.root.join(&path);
-        if !fs::symlink_metadata(&full).is_ok_and(|m| m.is_file()) {
-            return Err("Only regular files can be resolved here.".into());
+        if content.len() > PREVIEW_LIMIT || content.contains('\0') {
+            return Err("The resolution must be text within the 2 MiB limit.".into());
         }
-        fs::write(&full, content).map_err(|e| format!("Cannot save the file: {e}"))?;
+        let path = repo.conflict_path(&info, file_id)?;
+        repo.save_checkpoint("Before saving a conflict resolution")?;
+        repo.write_merge_result(&path, content)?;
         repo.write(&[os("add"), os("--"), path], None, None, None)?;
         repo.info()
     }
