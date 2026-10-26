@@ -48,6 +48,30 @@ fn startup_path() -> Option<String> {
     })
 }
 #[tauri::command]
+async fn github_read(
+    repo_id: Option<u64>,
+    repository: Option<String>,
+    request: git::github::ReadRequest,
+    state: State<'_, AppState>,
+) -> git::Result<serde_json::Value> {
+    task(state, false, move |b| {
+        b.github_read(repo_id, repository.as_deref(), request)
+    })
+    .await
+}
+#[tauri::command]
+async fn github_write(
+    repo_id: u64,
+    repository: String,
+    request: git::github::WriteRequest,
+    state: State<'_, AppState>,
+) -> git::Result<()> {
+    task(state, true, move |b| {
+        b.github_write(repo_id, &repository, request)
+    })
+    .await
+}
+#[tauri::command]
 async fn open_repository(path: String, state: State<'_, AppState>) -> git::Result<RepoInfo> {
     task(state, true, move |b| b.open(&path)).await
 }
@@ -851,6 +875,8 @@ pub fn run() {
         .manage(AppState::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            github_read,
+            github_write,
             startup_path,
             open_repository,
             close_repository,

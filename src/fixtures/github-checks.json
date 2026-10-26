@@ -1,0 +1,5 @@
+[
+  {"__typename":"CheckRun","name":"Build","status":"COMPLETED","conclusion":"SUCCESS"},
+  {"__typename":"StatusContext","context":"ci/legacy","state":"FAILURE"},
+  {"__typename":"CheckRun","name":"Test","status":"IN_PROGRESS","conclusion":""}
+]

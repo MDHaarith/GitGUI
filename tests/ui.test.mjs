@@ -66,7 +66,7 @@ after(async () => { await browser?.close(); await server?.close(); });
 
 test('the fake repository renders with branches, remote actions, and three commits', async () => {
   assert.equal(await tab.locator('#history-rows tr').count(), 3);
-  assert.equal(await tab.locator('.ref-action', { hasText: 'Check out' }).count(), 2);
+  assert.equal(await tab.locator('#ref-list .ref-item[data-kind="remote"]').count(), 2);
 });
 
 test('the progress bar never covers the repository picker', async () => {
@@ -112,6 +112,108 @@ test('the code map draws files, links them, and searches symbols', async () => {
   assert.equal(await tab.locator('#codemap-graph .nodes g.on').count(), 1);
   await tab.screenshot({ path: 'test-results/ui-codemap.png' });
   await tab.evaluate(() => document.getElementById('codemap-dialog').close());
+});
+
+test('GitHub hub keeps review drafts local and routes explicit writes through the bridge', async () => {
+  await tab.evaluate(() => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    const pull = { number: 7, title: 'Keyboard navigation', state: 'OPEN', author: { login: 'dev' }, body: '<script>window.githubUnsafe = true</script>', headRefOid: 'a'.repeat(40), headRefName: 'feature', baseRefName: 'main', changedFiles: 1, files: [{ path: 'src/file.ts' }], statusCheckRollup: [{ name: 'Build', conclusion: 'SUCCESS' }], reviewRequests: [{ login: 'reviewer' }], latestReviews: [] };
+    window.githubWrites = []; window.githubWriteFail = false;
+    window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === 'plugin:dialog|message') return 'Ok';
+      if (cmd === 'github_write') {
+        window.githubWrites.push(structuredClone(args.request));
+        if (window.githubWriteFail) throw new Error('Offline fixture failure');
+        return null;
+      }
+      if (cmd === 'get_graph' && window.githubRefreshFail) throw new Error('Local refresh fixture failure');
+      if (cmd !== 'github_read') return original(cmd, args);
+      switch (args.request.kind) {
+        case 'repository': return { name: 'example/demo' };
+        case 'pulls': return [pull];
+        case 'pull': return pull;
+        case 'diff': return { text: '--- a/src/file.ts\n+++ b/src/file.ts\n@@ -1,2 +1,2 @@\n context\n-old\n+new', binary: false, truncated: false };
+        case 'issues': return [{ number: 8, title: 'Bug report', state: 'OPEN' }];
+        case 'issue': return { number: 8, title: 'Bug report', state: 'OPEN', body: 'Details', comments: [{ author: { login: 'dev' }, body: 'Existing comment', createdAt: '2026-10-26' }] };
+        case 'runs': return [{ databaseId: 10, displayTitle: 'CI', status: 'completed', conclusion: 'failure', headBranch: 'main' }];
+        case 'run': return { databaseId: 10, displayTitle: 'CI', status: 'completed', conclusion: 'failure', headBranch: 'main', jobs: [{ name: 'Test', status: 'completed', conclusion: 'failure' }] };
+        case 'log': return { text: 'failed test fixture', binary: false, truncated: true };
+        case 'releases': return [{ id: 1, name: 'Version 1', tag_name: 'v1', body: 'Release notes fixture', published_at: '2026-10-26', draft: false, prerelease: false }];
+        case 'notifications': return [{ id: '123', unread: true, repository: { full_name: 'example/demo' }, subject: { title: 'Review requested', type: 'PullRequest' }, reason: 'review_requested' }];
+        case 'readme': return { text: '# README fixture', truncated: false };
+        case 'branches': return [{ name: 'main', protected: true }];
+        case 'commits': return [{ sha: 'b'.repeat(40), commit: { message: 'Recent commit fixture', author: { name: 'Dev', date: '2026-10-26' } } }];
+        default: throw new Error('Unexpected GitHub read: ' + args.request.kind);
+      }
+    };
+  });
+  await tab.click('#tools-button'); await tab.click('#github-button');
+  await tab.locator('#github-list button', { hasText: '#7' }).click();
+  assert.equal(await tab.evaluate(() => window.githubUnsafe), undefined);
+  assert.equal(await tab.locator('#github-detail script').count(), 0);
+  await tab.locator('#github-detail select[aria-label="Pull request file"]').selectOption('src/file.ts', { force: true });
+  await tab.getByRole('button', { name: 'Comment on new line 2', exact: true }).click();
+  await tab.getByRole('textbox', { name: 'Inline review comment', exact: true }).fill('Check this line');
+  await tab.getByRole('button', { name: 'Add to pending review', exact: true }).click();
+  assert.equal(await tab.evaluate(() => window.githubWrites.length), 0);
+  await tab.getByRole('textbox', { name: 'Review summary', exact: true }).fill('Summary fixture');
+  await tab.evaluate(() => { window.githubWriteFail = true; });
+  await tab.getByRole('button', { name: 'Submit review', exact: true }).click();
+  await tab.locator('#github-error', { hasText: 'Offline fixture failure' }).waitFor();
+  assert.equal(await tab.getByRole('textbox', { name: 'Review summary', exact: true }).inputValue(), 'Summary fixture');
+  assert.ok((await tab.locator('#github-detail').textContent()).includes('Check this line'));
+  await tab.evaluate(() => { window.githubWriteFail = false; window.githubRefreshFail = true; });
+  await tab.getByRole('button', { name: 'Submit review', exact: true }).click();
+  await tab.waitForFunction(() => document.querySelector('[aria-label="Review summary"]').value === '');
+  const writes = await tab.evaluate(() => window.githubWrites);
+  assert.deepEqual(writes.at(-1).comments, [{ path: 'src/file.ts', line: 2, side: 'RIGHT', body: 'Check this line' }]);
+  assert.equal(writes.at(-1).event, 'COMMENT');
+  assert.equal(writes.at(-1).head, 'a'.repeat(40));
+  await tab.evaluate(() => { window.githubRefreshFail = false; });
+  for (const method of ['merge', 'squash', 'rebase']) {
+    await tab.locator('#github-detail select[aria-label="Merge method"]').selectOption(method, { force: true });
+    await tab.getByRole('button', { name: 'Merge…', exact: true }).click();
+    await tab.waitForFunction(method => window.githubWrites.at(-1)?.kind === 'merge' && window.githubWrites.at(-1)?.method === method, method);
+    await tab.locator('#github-dialog[aria-busy="false"]').waitFor();
+    assert.equal((await tab.evaluate(() => window.githubWrites.at(-1))).head, 'a'.repeat(40));
+  }
+  await tab.getByRole('button', { name: 'Check out PR (detached)', exact: true }).click();
+  await tab.waitForFunction(() => window.githubWrites.at(-1)?.kind === 'checkout');
+  await tab.locator('#github-dialog[aria-busy="false"]').waitFor();
+
+  await tab.locator('#github-tabs').getByRole('button', { name: 'Issues', exact: true }).click();
+  await tab.locator('#github-list button', { hasText: '#8' }).click();
+  await tab.getByRole('textbox', { name: 'Issue comment', exact: true }).fill('Issue comment fixture');
+  await tab.getByRole('button', { name: 'Add comment', exact: true }).click();
+  await tab.waitForFunction(() => window.githubWrites.at(-1)?.kind === 'comment');
+  await tab.getByRole('button', { name: 'Close issue…', exact: true }).click();
+  await tab.waitForFunction(() => window.githubWrites.at(-1)?.kind === 'issue_state');
+  await tab.locator('#github-tabs').getByRole('button', { name: 'Actions', exact: true }).click();
+  await tab.locator('#github-list button', { hasText: 'CI' }).click();
+  await tab.getByRole('button', { name: 'Failed jobs log', exact: true }).click();
+  await tab.locator('#github-diff .note').waitFor();
+  await tab.getByRole('button', { name: 'Re-run…', exact: true }).click();
+  await tab.waitForFunction(() => window.githubWrites.at(-1)?.kind === 'rerun');
+  await tab.locator('#github-tabs').getByRole('button', { name: 'Releases', exact: true }).click();
+  await tab.locator('#github-list button', { hasText: 'Version 1' }).click();
+  assert.ok((await tab.locator('#github-detail').textContent()).includes('Release notes fixture'));
+  await tab.locator('#github-tabs').getByRole('button', { name: 'Inbox', exact: true }).click();
+  await tab.getByRole('button', { name: 'Mark as read', exact: true }).click();
+  await tab.waitForFunction(() => window.githubWrites.at(-1)?.kind === 'read_notification');
+  await tab.fill('#github-repository', 'another/repo');
+  await tab.getByRole('button', { name: 'Browse read-only', exact: true }).click();
+  await tab.locator('#github-detail', { hasText: '# README fixture' }).waitFor();
+  await tab.locator('#github-controls select[aria-label="Repository content"]').selectOption('branches', { force: true });
+  await tab.locator('#github-list', { hasText: 'Protected' }).waitFor();
+  await tab.locator('#github-controls select[aria-label="Repository content"]').selectOption('commits', { force: true });
+  await tab.locator('#github-list', { hasText: 'Recent commit fixture' }).waitFor();
+  await tab.locator('#github-controls select[aria-label="Repository content"]').selectOption('pulls', { force: true });
+  await tab.locator('#github-list button', { hasText: '#7' }).click();
+  assert.equal(await tab.getByRole('button', { name: 'Submit review', exact: true }).count(), 0);
+  assert.equal(await tab.getByRole('button', { name: 'Merge…', exact: true }).count(), 0);
+  assert.equal(await tab.getByRole('button', { name: 'Check out PR (detached)', exact: true }).count(), 0);
+  await tab.screenshot({ path: 'test-results/ui-github.png' });
+  await tab.click('#github-close');
 });
 
 test('every dialog fits the window without sideways scrolling', async () => {

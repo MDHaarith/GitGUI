@@ -9,6 +9,7 @@ import { changedRange, numberDiff, pairLines, type DiffLine } from './diff.ts';
 import { isBlock, parseConflicts, resolveConflicts, type Choice, type Segment } from './conflict.ts';
 import { isNewer } from './update.ts';
 import { wireDropdown } from './dropdown.ts';
+import { wireGithub } from './github.ts';
 import { aiCost, explainCrash, explainError, explainState, sortByRisk } from './explain.ts';
 import { forgetRecent, isUnavailable, parseRecent, rememberRecent } from './recent.ts';
 import { summaryHint } from './commit.ts';
@@ -500,9 +501,13 @@ async function closeRepository(item: RepoInfo) {
   }
 }
 let splitDiff = stored('diffSplit') === '1';
-const shownPreviews = new Map<string, [Preview, ((hunk: number, header: string) => void) | undefined]>();
-function lineNumber(value: number | null) {
-  const number = document.createElement('span'); number.className = 'line-number'; number.setAttribute('aria-hidden', 'true'); number.textContent = value === null ? '' : String(value); return number;
+type LineAction = (line: number, side: 'LEFT' | 'RIGHT') => void;
+const shownPreviews = new Map<string, [Preview, ((hunk: number, header: string) => void) | undefined, LineAction | undefined]>();
+function lineNumber(value: number | null, side?: 'LEFT' | 'RIGHT', onLine?: LineAction) {
+  const number = document.createElement(onLine && value !== null ? 'button' : 'span'); number.className = 'line-number'; number.textContent = value === null ? '' : String(value);
+  if (number instanceof HTMLButtonElement && value !== null && side) { number.type = 'button'; number.setAttribute('aria-label', `Comment on ${side === 'LEFT' ? 'old' : 'new'} line ${value}`); number.onclick = () => onLine!(value, side); }
+  else number.setAttribute('aria-hidden', 'true');
+  return number;
 }
 /** A diff line's text; when it replaces a similar line, only the changed words are marked. */
 function diffText(line: DiffLine | null, other?: DiffLine) {
@@ -518,8 +523,8 @@ function diffText(line: DiffLine | null, other?: DiffLine) {
   text.textContent = line.text || ' '; return text;
 }
 /** Renders a diff, unified or side by side; `onHunk` adds a stage/unstage button to each hunk. */
-function previewInto(id: string, preview: Preview, onHunk?: (hunk: number, header: string) => void, hunkLabel = 'Stage hunk') {
-  shownPreviews.set(id, [preview, onHunk]);
+function previewInto(id: string, preview: Preview, onHunk?: (hunk: number, header: string) => void, hunkLabel = 'Stage hunk', onLine?: LineAction) {
+  shownPreviews.set(id, [preview, onHunk, onLine]);
   const container = get(id); container.replaceChildren(); container.dataset.hunkLabel = hunkLabel;
   // shortcut: render 5,000 diff lines, add virtualization when larger previews are needed.
   const all = numberDiff(preview.text, preview.binary); const lines = all.slice(0, 5000);
@@ -538,13 +543,13 @@ function previewInto(id: string, preview: Preview, onHunk?: (hunk: number, heade
   if (!split) {
     for (const line of lines) {
       if (line.kind === 'hunk') hunkRow(line);
-      else row(line.kind).append(lineNumber(line.oldLine), lineNumber(line.newLine), diffText(line, partner.get(line)));
+      else row(line.kind).append(lineNumber(line.oldLine, 'LEFT', onLine), lineNumber(line.newLine, 'RIGHT', onLine), diffText(line, partner.get(line)));
     }
   } else {
     for (const [left, right] of rows) {
       if (left === right && left?.kind === 'hunk') hunkRow(left);
       else if (left === right && left && left.oldLine === null && left.newLine === null) row('wide').append(diffText(left));
-      else row('pair').append(lineNumber(left?.oldLine ?? null), diffText(left, left ? partner.get(left) : undefined), lineNumber(right?.newLine ?? null), diffText(right, right ? partner.get(right) : undefined));
+      else row('pair').append(lineNumber(left?.oldLine ?? null, 'LEFT', onLine), diffText(left, left ? partner.get(left) : undefined), lineNumber(right?.newLine ?? null, 'RIGHT', onLine), diffText(right, right ? partner.get(right) : undefined));
     }
   }
   if (preview.truncated || all.length > 5000) { const note = document.createElement('span'); note.className = 'diff-line note'; note.textContent = 'Preview truncated. Inspect the complete diff in Git for the remaining content.'; container.append(note); }
@@ -555,7 +560,7 @@ document.querySelectorAll<HTMLButtonElement>('.diff-toggle').forEach(toggle => {
   toggle.onclick = () => {
     splitDiff = !splitDiff; save('diffSplit', splitDiff ? '1' : '0');
     document.querySelectorAll('.diff-toggle').forEach(other => other.setAttribute('aria-pressed', String(splitDiff)));
-    for (const [id, [preview, onHunk]] of shownPreviews) if (get(id).querySelector('.diff-line')) previewInto(id, preview, onHunk, get(id).dataset.hunkLabel);
+    for (const [id, [preview, onHunk, onLine]] of shownPreviews) if (get(id)?.querySelector('.diff-line')) previewInto(id, preview, onHunk, get(id).dataset.hunkLabel, onLine);
   };
 });
 async function openDetails(oid = selected, parent: string | null = null) {
@@ -1551,6 +1556,20 @@ async function checkForChanges() {
 // Refresh quietly, then save a checkpoint if the window has been away for a while.
 window.addEventListener('focus', () => { focusCheck ??= checkForChanges().then(() => autoCheckpoint()).finally(() => { focusCheck = null; fetchQuietly(); }); });
 window.setInterval(fetchQuietly, 60_000);
+wireGithub({
+  repo: () => repo, busy: () => busy,
+  confirm: text => confirm(text, { title: 'GitHub', kind: 'warning' }),
+  preview: (id, preview, onLine) => previewInto(id, preview, undefined, undefined, onLine),
+  change: async action => {
+    if (busy) throw new Error('Wait for the current Git operation to finish.');
+    let failure: unknown;
+    await run('Updating GitHub…', async () => {
+      try { await action(); } catch (error) { failure = error; throw error; }
+      await refresh();
+    }, true);
+    if (failure) throw failure;
+  },
+});
 updateControls();
 if (isTauri()) {
   get('window-controls').hidden = false;

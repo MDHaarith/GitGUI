@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.24.0 — 2026-10-26
+- GitHub hub (through gh): pull requests with filters, checks, reviewers and file diffs; check out a PR without leaving your branch; merge, squash or rebase after confirming
+- Review pull requests with inline comments, submitted together as Comment, Approve or Request changes
+- Browse issues, comment, and close or reopen them
+- Workflow runs by branch with job status, failed-job logs, and re-runs
+- Release notes and a notification inbox with mark as read
+- Browse any GitHub repository's README, branches, commits and pull requests without cloning
+
 ## 0.23.0 — 2026-10-26
 - Bundled MCP server (gitgui-mcp) lets AI agents read the repository; Git writes need GITGUI_MCP_ALLOW_WRITE=1, and destructive operations need GITGUI_MCP_ALLOW_DESTRUCTIVE=1 and save a checkpoint first
 

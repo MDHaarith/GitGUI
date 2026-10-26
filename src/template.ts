@@ -37,6 +37,7 @@ export const markup = `
     <span class="experiment-bar" id="experiment-bar" hidden>Experiment<button id="experiment-keep" data-repo title="Merge this experiment into the branch it started from">Keep it</button><button id="experiment-discard" data-repo title="Delete this experiment and return to where you were">Throw it away</button></span>
     <div class="menu"><button id="tools-button" aria-haspopup="menu" aria-expanded="false" aria-controls="tools-menu">Tools<svg class="chrome-icon" aria-hidden="true"><use href="#chrome-chevron"/></svg></button>
       <div class="menu-list" id="tools-menu" role="menu" hidden>
+        <button role="menuitem" id="github-button" title="Pull requests, reviews, issues, Actions, releases and notifications">GitHub hub</button>
         <button role="menuitem" id="session-button" data-repo title="See what changed since your last checkpoint or commit, riskiest first, and undo single files">Review AI changes</button>
         <button role="menuitem" id="stash-button" data-repo title="Put unfinished changes aside, then bring them back later">Stashes</button>
         <button role="menuitem" id="rebase-button" data-repo title="Reorder, combine, edit, or remove unpublished commits">Clean up commits</button>

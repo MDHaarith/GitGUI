@@ -20,6 +20,7 @@ use std::{
 mod commits;
 mod daily;
 mod files;
+pub mod github;
 mod history;
 pub mod mcp;
 mod process;
