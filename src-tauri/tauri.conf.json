@@ -18,11 +18,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["appimage", "rpm"],
+    "targets": "all",
     "category": "DeveloperTool",
     "shortDescription": "Visual Git history and everyday repository workflows",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
     "resources": ["../src/assets/fonts/geist-OFL.txt", "../src/assets/fonts/geist-mono-OFL.txt"],
+    "macOS": { "signingIdentity": "-" },
     "linux": { "rpm": { "depends": ["git >= 2.43", "webkit2gtk4.1", "gtk3"] } }
   }
 }

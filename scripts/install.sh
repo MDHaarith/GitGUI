@@ -49,7 +49,6 @@ EOF
   echo "Installed GitGUI $version in $target. Launch GitGUI from the application menu."
   ;;
 Darwin)
-  # shortcut: untested on macOS; needs an .icns icon in tauri.conf.json if the build asks for one.
   $clean npm run tauri -- build --bundles app
   rm -rf /Applications/GitGUI.app
   cp -R "$bundle/macos/GitGUI.app" /Applications/

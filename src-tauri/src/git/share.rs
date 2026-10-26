@@ -69,7 +69,7 @@ impl Backend {
         if info.upstream.is_none() || info.ahead != 0 {
             return Err("Push this branch and make sure it has no unpushed commits before creating a pull request.".into());
         }
-        let out = Command::new("gh")
+        let out = crate::platform::command("gh")
             .args([
                 "repo",
                 "view",
@@ -80,7 +80,6 @@ impl Backend {
             ])
             .current_dir(&repo.root)
             .env("GH_PROMPT_DISABLED", "1")
-            .env_remove("LD_LIBRARY_PATH")
             .stdin(Stdio::null())
             .output()
             .map_err(|_| {
@@ -126,7 +125,7 @@ impl Backend {
         {
             return Err("Choose a valid base branch name.".into());
         }
-        let mut child = Command::new("gh")
+        let mut child = crate::platform::command("gh")
             .args([
                 "pr",
                 "create",
@@ -141,7 +140,6 @@ impl Backend {
             ])
             .current_dir(&repo.root)
             .env("GH_PROMPT_DISABLED", "1")
-            .env_remove("LD_LIBRARY_PATH")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

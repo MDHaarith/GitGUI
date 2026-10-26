@@ -8,11 +8,8 @@ fn cli() -> Command {
     let local = std::env::var_os("HOME")
         .map(|home| PathBuf::from(home).join(".local/bin/code-review-graph"))
         .filter(|path| path.is_file());
-    let mut command = Command::new(local.unwrap_or_else(|| "code-review-graph".into()));
-    command
-        .env_remove("LD_LIBRARY_PATH")
-        .env_remove("LD_PRELOAD")
-        .stdin(Stdio::null());
+    let mut command = crate::platform::command(local.unwrap_or_else(|| "code-review-graph".into()));
+    command.stdin(Stdio::null());
     command
 }
 

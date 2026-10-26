@@ -2,13 +2,12 @@
 use crate::git::Result;
 use std::{
     io::{BufRead, BufReader},
-    os::unix::process::CommandExt,
     path::Path,
-    process::{Command, Stdio},
+    process::Stdio,
     sync::Mutex,
 };
 
-static RUNNING: Mutex<Option<i32>> = Mutex::new(None);
+static RUNNING: Mutex<Option<u32>> = Mutex::new(None);
 // The packaged app's library and GTK paths would break the user's own tools.
 const LAUNCHER_ENV: [&str; 12] = [
     "LD_LIBRARY_PATH",
@@ -27,7 +26,7 @@ const LAUNCHER_ENV: [&str; 12] = [
 
 /// The command that starts this project: `git config gitgui.runCommand`, else a guess from its files.
 pub fn command(root: &Path) -> Option<String> {
-    let configured = Command::new("git")
+    let configured = crate::platform::command("git")
         .current_dir(root)
         .args(["config", "gitgui.runCommand"])
         .output()
@@ -65,20 +64,23 @@ pub fn run(root: &Path, output: impl Fn(String)) -> Result<String> {
     if guard.is_some() {
         return Err("The project is already running. Stop it first.".into());
     }
-    let mut process = Command::new("sh");
+    let line = if cfg!(windows) {
+        format!("({command}) 2>&1")
+    } else {
+        format!("exec 2>&1; {command}")
+    };
+    let mut process = crate::platform::shell(&line);
     process
         .current_dir(root)
-        .args(["-c", &format!("exec 2>&1; {command}")])
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .process_group(0);
+        .stdout(Stdio::piped());
     for variable in LAUNCHER_ENV {
         process.env_remove(variable);
     }
     let mut child = process
         .spawn()
         .map_err(|e| format!("Cannot start {command}: {e}"))?;
-    *guard = Some(child.id() as i32);
+    *guard = Some(child.id());
     drop(guard);
     output(format!("$ {command}"));
     for line in BufReader::new(child.stdout.take().unwrap())
@@ -94,8 +96,7 @@ pub fn run(root: &Path, output: impl Fn(String)) -> Result<String> {
 
 pub fn stop() -> Result<()> {
     if let Some(pid) = *RUNNING.lock().map_err(|e| e.to_string())? {
-        // The negative pid signals the whole process group, including dev servers started by npm.
-        unsafe { libc::kill(-pid, libc::SIGTERM) };
+        crate::platform::kill_tree(pid);
     }
     Ok(())
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.19.0 — 2026-10-26
+- Builds and runs on macOS and Windows: process spawning, browser opening, dates, and stopping runs no longer depend on Linux tools
+- Windows: Git and helper commands no longer flash a console window; untracked files can be previewed
+- macOS: gh, Homebrew tools, and ~/.local/bin agents are found when GitGUI is opened from Finder
+- AI agent commands stop after 10 minutes on every platform, without GNU `timeout`
+- macOS and Windows icons; "Install and restart" only appears on Linux, where it replaces the AppImage
+
 ## 0.18.3 — 2026-10-26
 - Repository cleanup: removed the finished plan, stale handoff notes, and the design mockups (DESIGN.md keeps the design values)
 

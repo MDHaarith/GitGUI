@@ -31,8 +31,21 @@ installed version, and installs the new one:
 - **Linux:** `~/Applications/GitGUI/<version>`, a `current` symlink, and a
   `gitgui.desktop` launcher. AppImageLauncher copies of GitGUI and their launchers
   are removed too. A running GitGUI keeps the old version until you close it.
-- **macOS:** `/Applications/GitGUI.app` (untested).
-- **Windows (Git Bash):** runs the NSIS installer silently (untested).
+- **macOS:** `/Applications/GitGUI.app`.
+- **Windows (Git Bash):** runs the NSIS installer silently.
+
+Or download an installer from the
+[releases page](https://github.com/MDHaarith/GitGUI/releases): an AppImage or RPM
+for Linux, a universal `.dmg` (Apple silicon and Intel) for macOS, and a
+`-setup.exe` for Windows. GitGUI needs Git installed and on PATH
+([Git for Windows](https://git-scm.com/download/win) on Windows; on macOS the
+Xcode command line tools or Homebrew Git).
+
+The macOS and Windows builds are not signed with a paid certificate yet:
+
+- **macOS:** the first time, right-click GitGUI in Applications and choose
+  Open, or run `xattr -dr com.apple.quarantine /Applications/GitGUI.app`.
+- **Windows:** if SmartScreen warns, choose More info, then Run anyway.
 
 ## Run the built app
 
@@ -146,8 +159,11 @@ their requirements in tooltips and accessibility descriptions.
 
 ## Develop and build
 
-Requirements: Rust 1.88+, Node 20.19+/22.12+ (tested with Node 24), system Git 2.43+,
-GTK 3 and WebKitGTK 4.1 development libraries. Tested on Fedora 44 x86-64.
+Requirements: Rust 1.88+, Node 20.19+/22.12+ (tested with Node 24), and Git 2.43+.
+Linux also needs the GTK 3 and WebKitGTK 4.1 development libraries; macOS needs the
+Xcode command line tools; Windows needs the Visual Studio C++ build tools and
+WebView2 (included in Windows 10 and 11). Developed on Fedora 44 x86-64; CI tests
+every push on Ubuntu, macOS, and Windows (`.github/workflows/cross-platform.yml`).
 
 ```sh
 npm ci --ignore-scripts
@@ -246,11 +262,10 @@ env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u ELECTRON_RUN_AS_NODE \
   multi-commit sequencer operations must be completed in the terminal.
 - Staging works per file or per hunk, not per line. History search covers up to
   10,000 loaded commits. Amend and undo refuse commits that were already pushed.
-- Updates are announced, not installed: Download opens the release page. Releases
-  start as drafts, which the update check cannot see until they are published.
-- Nested submodule operations are outside this release. `.github/workflows/release.yml` builds Linux, macOS, and
-  Windows installers for each `v*` tag into a draft release (untested until the
-  repository is on GitHub).
+- The update check only sees published releases, not drafts.
+- Nested submodule operations are outside this release.
+- "Install and restart" replaces the Linux AppImage in place; on macOS and Windows,
+  Download opens the release page with the new installer.
 
 ## Dependency safety
 

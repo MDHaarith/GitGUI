@@ -11,7 +11,7 @@ use std::{
     hash::{Hash, Hasher},
     io::{Read, Write},
     path::{Component, Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
     sync::Arc,
     thread,
     time::{Duration, Instant},
@@ -36,6 +36,12 @@ pub type Result<T> = std::result::Result<T, String>;
 pub type Progress = Arc<dyn Fn(String) + Send + Sync>;
 const DATA_LIMIT: usize = 16 * 1024 * 1024;
 const PREVIEW_LIMIT: usize = 2 * 1024 * 1024;
+// The system Git on Linux, so a git bundled beside the AppImage is never picked up; elsewhere Git from PATH.
+const GIT: &str = if cfg!(target_os = "linux") {
+    "/usr/bin/git"
+} else {
+    "git"
+};
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -676,21 +682,17 @@ impl Repository {
             Err(e) => return Err(format!("Cannot prepare the checkpoint: {e}")),
         }
         let git = |args: &[&str]| -> Result<Vec<u8>> {
-            let output = Command::new(if cfg!(target_os = "linux") {
-                "/usr/bin/git"
-            } else {
-                "git"
-            })
-            .current_dir(&self.root)
-            .args(["--no-pager", "-c", "core.fsmonitor=false"])
-            .args(args)
-            .env("GIT_INDEX_FILE", &temp)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|e| format!("Could not start Git: {e}"))?;
+            let output = crate::platform::command(GIT)
+                .current_dir(&self.root)
+                .args(["--no-pager", "-c", "core.fsmonitor=false"])
+                .args(args)
+                .env("GIT_INDEX_FILE", &temp)
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
+                .stdin(Stdio::null())
+                .output()
+                .map_err(|e| format!("Could not start Git: {e}"))?;
             if output.status.success() {
                 Ok(output.stdout)
             } else {

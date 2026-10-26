@@ -1,6 +1,6 @@
 //! Per-repository version manager: version files, changelog entries, and the Git hooks that enforce them.
 use crate::git::Result;
-use std::{fs, path::Path, process::Command};
+use std::{fs, path::Path};
 
 pub const MARKER: &str = "# GitGUI versioning";
 const AGENTS_HEADING: &str = "## Versioning (GitGUI)";
@@ -167,16 +167,12 @@ pub fn apply(root: &Path, old: &str, new: &str) -> Result<Vec<String>> {
     Ok(changed)
 }
 
-fn today() -> Result<String> {
-    let out = Command::new("date")
-        .arg("+%F")
-        .output()
-        .map_err(|e| format!("Cannot read the date: {e}"))?;
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
-}
 pub fn add_changelog(root: &Path, version: &str, summary: &str) -> Result<()> {
     let mut text = read(&root.join("CHANGELOG.md")).unwrap_or_else(|| "# Changelog\n".into());
-    let entry = format!("## {version} — {}\n\n- {summary}\n", today()?);
+    let entry = format!(
+        "## {version} — {}\n\n- {summary}\n",
+        crate::platform::today()?
+    );
     match text.find("\n## ") {
         Some(i) => text.insert_str(i + 1, &(entry + "\n")),
         None => text = format!("{}\n\n{entry}", text.trim_end()),

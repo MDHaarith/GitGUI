@@ -682,7 +682,8 @@ function renderHints(state: string[], warnings: string[]) {
     install.onclick = () => { void run(`Installing GitGUI ${version}…`, async () => { await api.installUpdate(version); }); };
     const close = document.createElement('button'); close.type = 'button'; close.textContent = '×'; close.setAttribute('aria-label', 'Dismiss this tip');
     close.onclick = () => { dismissedHints.add('update:' + version); save('dismissedHints', JSON.stringify([...dismissedHints])); renderInfo(); };
-    item.append(text, install, download, close); items.unshift(item);
+    // In-place install replaces the Linux AppImage; macOS and Windows download the installer.
+    item.append(text, ...(navigator.userAgent.includes('Linux') ? [install] : []), download, close); items.unshift(item);
   }
   get('git-hint').replaceChildren(...items); get('git-hint').hidden = !items.length;
 }

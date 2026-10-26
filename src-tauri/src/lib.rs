@@ -1,6 +1,7 @@
 pub mod assist;
 pub mod codemap;
 pub mod git;
+pub mod platform;
 pub mod runner;
 pub mod version;
 use git::{
@@ -686,13 +687,7 @@ fn open_pull_request(url: String) -> git::Result<()> {
     {
         return Err("Only GitHub pull request pages can be opened.".into());
     }
-    std::process::Command::new("xdg-open")
-        .arg(&url)
-        .env_remove("LD_LIBRARY_PATH")
-        .env_remove("LD_PRELOAD")
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("Cannot open the browser: {e}. Visit {url}"))
+    platform::open_url(&url)
 }
 #[tauri::command]
 async fn rebase_plan(
@@ -721,14 +716,12 @@ const RELEASES: &str = "https://github.com/MDHaarith/GitGUI/releases";
 async fn latest_release() -> git::Result<Option<(String, String)>> {
     tauri::async_runtime::spawn_blocking(|| {
         // gh is authenticated, so it works for a private repository and avoids the anonymous rate limit.
-        let gh = std::process::Command::new("gh")
+        let gh = platform::command("gh")
             .args(["api", "repos/MDHaarith/GitGUI/releases/latest"])
-            .env_remove("LD_LIBRARY_PATH")
-            .env_remove("LD_PRELOAD")
             .output();
         let output = match gh {
             Ok(o) if o.status.success() => o,
-            _ => std::process::Command::new("curl")
+            _ => platform::command("curl")
                 .args([
                     "-sS",
                     "--max-time",
@@ -739,8 +732,6 @@ async fn latest_release() -> git::Result<Option<(String, String)>> {
                     "\n%{http_code}",
                 ])
                 .arg("https://api.github.com/repos/MDHaarith/GitGUI/releases/latest")
-                .env_remove("LD_LIBRARY_PATH")
-                .env_remove("LD_PRELOAD")
                 .output()
                 .map_err(|_| "Install curl or gh to check for updates.".to_owned())?,
         };
@@ -774,34 +765,16 @@ fn open_release(url: String) -> git::Result<()> {
     if !url.starts_with(RELEASES) || url.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err("Only GitGUI release pages can be opened.".into());
     }
-    std::process::Command::new("xdg-open")
-        .arg(&url)
-        .env_remove("LD_LIBRARY_PATH")
-        .env_remove("LD_PRELOAD")
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("Cannot open the browser: {e}. Visit {url}"))
+    platform::open_url(&url)
 }
 
-/// Child processes must not inherit the running AppImage's launcher variables.
-fn clean_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
-    let mut command = std::process::Command::new(program);
-    for var in [
-        "APPIMAGE",
-        "APPDIR",
-        "ARGV0",
-        "OWD",
-        "LD_LIBRARY_PATH",
-        "LD_PRELOAD",
-        "TARGET_APPIMAGE",
-        "REDIRECT_APPIMAGE",
-        "APPIMAGE_SILENT_INSTALL",
-    ] {
-        command.env_remove(var);
-    }
-    command
+#[cfg(not(target_os = "linux"))]
+#[tauri::command]
+async fn install_update(_version: String, _app: tauri::AppHandle) -> git::Result<()> {
+    Err("In-app updates replace the Linux AppImage; use Download on this system.".into())
 }
 /// Downloads release `version`, installs it the way `npm run install:app` does, and restarts into it.
+#[cfg(target_os = "linux")]
 #[tauri::command]
 async fn install_update(version: String, app: tauri::AppHandle) -> git::Result<()> {
     if version.is_empty() || !version.chars().all(|c| c.is_ascii_digit() || c == '.') {
@@ -811,7 +784,7 @@ async fn install_update(version: String, app: tauri::AppHandle) -> git::Result<(
         .join("Applications/GitGUI");
     let current = apps.join("current");
     // shortcut: only the ~/Applications/GitGUI layout from install.sh updates in place; other installs use the release page.
-    if !cfg!(target_os = "linux") || !current.exists() {
+    if !current.exists() {
         return Err(
             "This GitGUI was not installed with `npm run install:app`; use Download instead."
                 .into(),
@@ -826,7 +799,7 @@ async fn install_update(version: String, app: tauri::AppHandle) -> git::Result<(
         let image = target.join(format!("GitGUI_{version}_amd64.AppImage"));
         let url = format!("{RELEASES}/download/v{version}/GitGUI_{version}_amd64.AppImage");
         let ok = |c: &mut std::process::Command| c.status().map(|s| s.success()).unwrap_or(false);
-        if !ok(clean_command("curl")
+        if !ok(platform::command("curl")
             .args(["-fsSL", "--max-time", "900", "-o"])
             .arg(&image)
             .arg(&url))
@@ -838,7 +811,7 @@ async fn install_update(version: String, app: tauri::AppHandle) -> git::Result<(
         }
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&image, std::fs::Permissions::from_mode(0o755)).map_err(fail)?;
-        if !ok(clean_command(&image)
+        if !ok(platform::command(&image)
             .arg("--appimage-extract")
             .current_dir(&target)
             .stdout(std::process::Stdio::null()))
@@ -864,7 +837,7 @@ async fn install_update(version: String, app: tauri::AppHandle) -> git::Result<(
     })
     .await
     .map_err(|e| format!("Update failed: {e}"))??;
-    clean_command(current.join("AppRun"))
+    platform::command(current.join("AppRun"))
         .current_dir(&current)
         .spawn()
         .map_err(|e| format!("Installed, but could not restart: {e}. Reopen GitGUI."))?;

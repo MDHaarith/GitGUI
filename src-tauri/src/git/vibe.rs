@@ -470,7 +470,7 @@ impl Backend {
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .ok_or("Invalid folder name")?;
-                let output = Command::new("gh")
+                let output = crate::platform::command("gh")
                     .current_dir(&repo.root)
                     .args([
                         "repo",
@@ -483,7 +483,6 @@ impl Backend {
                         "origin",
                     ])
                     .env("GH_PROMPT_DISABLED", "1")
-                    .env_remove("LD_LIBRARY_PATH")
                     .stdin(Stdio::null())
                     .output()
                     .map_err(|_| {

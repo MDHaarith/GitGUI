@@ -7,9 +7,8 @@ use serde_json::{json, Value};
 use std::{
     fs::{self, OpenOptions},
     io::Write,
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 
 const MODEL: &str = "claude-opus-5-5";
@@ -40,7 +39,8 @@ pub struct Provider {
 fn config_dir() -> Option<PathBuf> {
     let config = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .or_else(|| std::env::var_os("APPDATA").map(PathBuf::from))?;
     Some(config.join("com.gitgui.app"))
 }
 fn key_file() -> Option<PathBuf> {
@@ -54,12 +54,12 @@ fn provider_file() -> Option<PathBuf> {
 fn write_private(path: &Path, data: &[u8]) -> Result<()> {
     fs::create_dir_all(path.parent().ok_or("Invalid config path")?).map_err(|e| e.to_string())?;
     let _ = fs::remove_file(path);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-        .map_err(|e| e.to_string())?;
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    // On Windows the per-user %APPDATA% folder is already private to this user.
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path).map_err(|e| e.to_string())?;
     file.write_all(data).map_err(|e| e.to_string())
 }
 
@@ -155,7 +155,7 @@ fn credentials() -> Result<(String, &'static str)> {
     if let Some(key) = key {
         return Ok((format!("header = \"x-api-key: {key}\"\n"), ""));
     }
-    let token = Command::new("ant")
+    let token = crate::platform::command("ant")
         .args(["auth", "print-credentials", "--access-token"])
         .stdin(Stdio::null())
         .output()
@@ -252,10 +252,8 @@ pub fn parse_openai(body: &str, model: &str) -> Result<Answer> {
 
 /// POSTs a JSON body with curl, reading headers and body from stdin so keys never reach the process list.
 fn post(url: &str, headers: &str, body: &Value, name: &str) -> Result<String> {
-    let mut child = Command::new("curl")
+    let mut child = crate::platform::command("curl")
         .args(["-sS", "--max-time", "300", "-K", "-", url])
-        .env_remove("LD_LIBRARY_PATH")
-        .env_remove("LD_PRELOAD")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -286,12 +284,8 @@ fn post(url: &str, headers: &str, body: &Value, name: &str) -> Result<String> {
 fn run_command(command: &str, prompt: &str) -> Result<Answer> {
     let dir = std::env::temp_dir().join(format!("gitgui-agent-{}", std::process::id()));
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    // shortcut: `timeout` is GNU coreutils (Linux); use a watchdog thread when macOS is supported.
-    let mut child = Command::new("timeout")
-        .args(["600", "sh", "-c", command])
+    let mut child = crate::platform::shell(command)
         .current_dir(&dir)
-        .env_remove("LD_LIBRARY_PATH")
-        .env_remove("LD_PRELOAD")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -303,7 +297,18 @@ fn run_command(command: &str, prompt: &str) -> Result<Answer> {
     let writer = std::thread::spawn(move || {
         let _ = stdin.write_all(input.as_bytes());
     });
+    // Stop an agent that runs longer than 10 minutes; dropping `done` ends the watchdog early.
+    let (done, finished) = std::sync::mpsc::channel::<()>();
+    let pid = child.id();
+    std::thread::spawn(move || {
+        if finished.recv_timeout(std::time::Duration::from_secs(600))
+            == Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        {
+            crate::platform::kill_tree(pid);
+        }
+    });
     let output = child.wait_with_output().map_err(|e| e.to_string());
+    drop(done);
     let _ = writer.join();
     let _ = fs::remove_dir_all(&dir);
     let output = output?;

@@ -1,5 +1,5 @@
 # Releases are built on the maintainer's laptop (scripts/release.sh); run this by hand only as a fallback.
-# Linux only: the app uses Unix APIs and bundles AppImage and rpm.
+# Linux installers only; cross-platform.yml adds the macOS and Windows ones to the release.
 name: Release
 on:
   workflow_dispatch:
@@ -29,3 +29,4 @@ jobs:
           releaseName: GitGUI ${{ github.ref_name }}
           releaseBody: See CHANGELOG.md for what changed in this version.
           releaseDraft: true
+          args: --bundles appimage rpm

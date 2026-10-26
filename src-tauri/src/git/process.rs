@@ -145,11 +145,7 @@ pub(super) fn execute(
     timeout: Option<Duration>,
     progress: Option<Progress>,
 ) -> Result<Output> {
-    let mut command = Command::new(if cfg!(target_os = "linux") {
-        "/usr/bin/git"
-    } else {
-        "git"
-    });
+    let mut command = crate::platform::command(GIT);
     command
         .current_dir(root)
         .args([
@@ -341,6 +337,8 @@ pub(super) fn relative_path(path: &[u8]) -> Result<()> {
         Ok(())
     }
 }
+// Each platform block returns, so the Unix `return` is not needless once the Windows block exists.
+#[cfg_attr(unix, allow(clippy::needless_return))]
 pub(super) fn untracked_preview(root: &Path, path: &OsStr) -> Result<Preview> {
     let path = Path::new(path);
     if path
@@ -411,8 +409,43 @@ pub(super) fn untracked_preview(root: &Path, path: &OsStr) -> Result<Preview> {
             }
             directory = file;
         }
+        return Err("Invalid repository-relative filename".into());
     }
-    Err("This platform cannot safely preview this untracked file".into())
+    #[cfg(not(unix))]
+    {
+        // shortcut: checks each component for links before opening, so a swap in between is not caught; Windows has no openat.
+        let mut full = root.to_path_buf();
+        for component in path.components() {
+            full.push(component);
+            let meta = fs::symlink_metadata(&full).map_err(|e| e.to_string())?;
+            if meta.file_type().is_symlink() {
+                if full.as_path().ends_with(path) {
+                    let target = fs::read_link(&full).map_err(|e| e.to_string())?;
+                    return Ok(Preview {
+                        text: format!("Symbolic link → {}", target.display()),
+                        truncated: false,
+                        binary: false,
+                    });
+                }
+                return Err("Cannot safely preview a file inside a linked folder".into());
+            }
+        }
+        if !fs::metadata(&full).map_err(|e| e.to_string())?.is_file() {
+            return Err("Only regular files and symbolic links can be previewed".into());
+        }
+        let file = File::open(&full).map_err(|e| e.to_string())?;
+        let (bytes, truncated) = drain(file, PREVIEW_LIMIT, None).map_err(|e| e.to_string())?;
+        let binary = bytes.contains(&0) || std::str::from_utf8(&bytes).is_err();
+        return Ok(Preview {
+            text: if binary {
+                "Binary file preview is unavailable.".into()
+            } else {
+                text(&bytes)
+            },
+            truncated,
+            binary,
+        });
+    }
 }
 
 #[cfg(test)]

@@ -69,7 +69,7 @@ impl Backend {
             .find(|f| f.id == file_id && f.untracked)
             .ok_or("Choose a file that is still untracked.")?;
         let bytes = repo.paths.get(file_id).ok_or("Unknown file")?.as_os_str();
-        let path = bytes.as_bytes();
+        let path = raw(bytes);
         relative_path(path)?;
         if folder && !path.contains(&b'/') {
             return Err("This file is not inside a folder; ignore the file instead.".into());
