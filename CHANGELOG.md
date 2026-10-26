@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.23.0 — 2026-10-26
+- Bundled MCP server (gitgui-mcp) lets AI agents read the repository; Git writes need GITGUI_MCP_ALLOW_WRITE=1, and destructive operations need GITGUI_MCP_ALLOW_DESTRUCTIVE=1 and save a checkpoint first
+
 ## 0.22.0 — 2026-10-26
 - VS Code extension 0.2.0: inline blame on the current line, a Commits view with read-only diffs, an SVG commit graph, and rename-aware file history
 

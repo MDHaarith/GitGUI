@@ -13,6 +13,23 @@ fn cli() -> Command {
     command
 }
 
+/// Searches the existing index without rebuilding or changing repository files.
+pub fn search(root: &Path, query: &str, limit: u64) -> Result<String> {
+    if !root.join(".code-review-graph/graph.db").is_file() {
+        return Err("No code index found. Install code-review-graph and run code-review-graph build --repo <path> first.".into());
+    }
+    let output = cli()
+        .args(["search", "--repo"])
+        .arg(root)
+        .args(["--limit", &limit.to_string(), "--", query])
+        .output()
+        .map_err(|_| "code-review-graph is not installed. Install it with: pip install --user code-review-graph".to_owned())?;
+    if !output.status.success() {
+        return Err(crate::git::redact(&String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 /// Builds the index in the background; skipped silently when code-review-graph is not installed.
 pub fn index(root: &Path) {
     let root = root.to_owned();

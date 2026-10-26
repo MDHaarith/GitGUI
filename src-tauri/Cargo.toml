@@ -1,11 +1,16 @@
 [package]
 name = "gitgui"
-version = "0.22.0"
+version = "0.23.0"
 description = "A graph-first Git desktop client"
 authors = ["GitGUI"]
 license = "MIT"
 edition = "2021"
 rust-version = "1.88"
+default-run = "gitgui"
+
+[[bin]]
+name = "gitgui-mcp"
+path = "src/bin/gitgui-mcp.rs"
 
 [lib]
 name = "gitgui_lib"

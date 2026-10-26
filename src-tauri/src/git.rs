@@ -21,6 +21,7 @@ mod commits;
 mod daily;
 mod files;
 mod history;
+pub mod mcp;
 mod process;
 mod rebase;
 mod share;

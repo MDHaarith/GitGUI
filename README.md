@@ -220,6 +220,87 @@ The npm dependencies have no install lifecycle scripts. The committed lockfiles
 pin the installed dependency graph. Fonts and their OFL licenses are in
 `src/assets/fonts`; no Google Fonts request is made by the desktop app.
 
+## MCP server for coding agents
+
+`gitgui-mcp` exposes GitGUI's Git backend over stdio without starting the desktop
+app. Build it with `cargo build --manifest-path src-tauri/Cargo.toml --bin gitgui-mcp
+--release`, or use the binary shipped with the app. Regular `tauri build` builds
+and bundles both Cargo binaries; `default-run` keeps `gitgui` as the desktop entry
+point. No separately copied `bundle.externalBin` sidecar is needed
+([Tauri's binary discovery](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.12.1/crates/tauri-cli/src/interface/rust.rs#L861)).
+Packaged Linux installs put it beside `gitgui` (inside an extracted AppImage:
+`usr/bin/gitgui-mcp`); macOS: `GitGUI.app/Contents/MacOS/gitgui-mcp`; Windows:
+`gitgui-mcp.exe` in the installation folder. Use its absolute path in client
+configuration, or put it on `PATH`.
+
+The default repository is `--repo <path>` or the current directory. Every tool
+also accepts an optional `repo` override. Only use repositories whose Git config
+and hooks you trust. Git must be installed, just as for the desktop app.
+
+Read tools are always available: `status`, `log` (limit, branch and literal path),
+`show_commit`, `diff` (working, staged, or two refs), `branches`, `tags`, `stashes`,
+`blame`, `file_history`, `list_checkpoints`, and `code_search`. Code search needs
+`code-review-graph` installed and an index built with
+`code-review-graph build --repo /absolute/path/to/repo`.
+
+Permissions are read once at server startup and default to read-only:
+
+- `GITGUI_MCP_ALLOW_WRITE=1` adds `stage`, `unstage`, `commit`, `create_branch`,
+  `switch_branch`, `stash_save`, and `save_checkpoint`.
+- Independently, `GITGUI_MCP_ALLOW_DESTRUCTIVE=1` adds `discard_files`, `reset`,
+  `restore_checkpoint`, and `drop_stash`. These save a checkpoint before changing
+  work; unchanged snapshots are deduplicated, as in the desktop app. Dropped
+  stashes also retain their full contents at the returned `recoveryRef`, recoverable
+  with `git stash apply <recoveryRef>` (including untracked files).
+
+Disabled tools are hidden and calls to them are refused. Stage, unstage, and
+discard take the file IDs returned by `status`; drop_stash takes the index and
+message returned by `stashes`. Checkpoints exclude ignored files. Tool content is
+credential-redacted and capped at 64 KiB with a truncation notice; narrow `limit`,
+`path`, or the blame line range for larger results. Requests are limited to 1 MiB.
+The server implements newline-delimited JSON-RPC 2.0 initialization, ping, and
+tool discovery/calls, with tool failures returned as `isError: true` text results.
+
+**Claude Desktop** — add to `claude_desktop_config.json` (replace both absolute
+paths; use escaped backslashes or forward slashes on Windows):
+
+```json
+{
+  "mcpServers": {
+    "gitgui": {
+      "command": "/absolute/path/to/gitgui-mcp",
+      "args": ["--repo", "/absolute/path/to/repo"]
+    }
+  }
+}
+```
+
+**Claude Code** — with `gitgui-mcp` on `PATH`, run from your repository:
+
+```sh
+claude mcp add gitgui -- gitgui-mcp --repo .
+```
+
+**Cursor** — put the same `mcpServers` JSON shown above in `.cursor/mcp.json`
+(project) or `~/.cursor/mcp.json` (user).
+
+**VS Code** — put this in `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "gitgui": {
+      "type": "stdio",
+      "command": "/absolute/path/to/gitgui-mcp",
+      "args": ["--repo", "${workspaceFolder}"]
+    }
+  }
+}
+```
+
+To opt into writes, add `"env": { "GITGUI_MCP_ALLOW_WRITE": "1" }` alongside
+`command` and `args` in any of these JSON entries, then restart the server.
+
 ## Checks
 
 ```sh

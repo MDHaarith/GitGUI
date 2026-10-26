@@ -109,7 +109,7 @@ impl Backend {
             .collect())
     }
     /// Stash numbers shift when stashes are added or removed; refuse if this one moved.
-    fn same_stash(&mut self, id: u64, index: u32, message: &str) -> Result<()> {
+    pub(super) fn same_stash(&mut self, id: u64, index: u32, message: &str) -> Result<()> {
         if self
             .stashes(id)?
             .get(index as usize)
