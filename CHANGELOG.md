@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.18.3 — 2026-10-26
+- Repository cleanup: removed the finished plan, stale handoff notes, and the design mockups (DESIGN.md keeps the design values)
+
 ## 0.18.2 — 2026-10-25
 - Working changes list keeps file names readable: long paths are cut at the start, and row buttons no longer take space while hidden
 
